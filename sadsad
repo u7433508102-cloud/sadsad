@@ -27,7 +27,7 @@ local snaplineDrawing = nil
 local function isPlayerKnockedOrKO(player)
     if not Config['Settings']['Knock Check'] then return false end
     
-    -- If player has no character, they are effectively dead/unavailable
+    -- No character = effectively dead
     if not player.Character then
         return true
     end
@@ -38,7 +38,7 @@ local function isPlayerKnockedOrKO(player)
         return true
     end
     
-    -- Check body effects (KO, Knocked)
+    -- Check body effects
     local bodyEffects = player.Character:FindFirstChild("BodyEffects")
     if bodyEffects then
         local ko = bodyEffects:FindFirstChild("K.O")
