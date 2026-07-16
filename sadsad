@@ -27,6 +27,11 @@ local snaplineDrawing = nil
 local function isPlayerKnockedOrKO(player)
     if not Config['Settings']['Knock Check'] then return false end
     if player.Character then
+        -- Check health (DEATH CHECK)
+        local humanoid = player.Character:FindFirstChild("Humanoid")
+        if humanoid and humanoid.Health <= 0 then
+            return true
+        end
         local bodyEffects = player.Character:FindFirstChild("BodyEffects")
         if bodyEffects then
             local ko = bodyEffects:FindFirstChild("K.O")
@@ -511,6 +516,25 @@ RunService.RenderStepped:Connect(function()
     end
 
     TriggerBot()
+
+    -- === DEATH CHECK ===
+    if currentTarget then
+        local char = currentTarget.Parent
+        if char then
+            local player = Players:GetPlayerFromCharacter(char)
+            if player and isPlayerKnockedOrKO(player) then
+                currentTarget = nil
+                isLocking = false
+                lastVisibleTarget = nil
+            end
+        end
+    end
+
+    if aimAssistTarget then
+        if isPlayerKnockedOrKO(aimAssistTarget) then
+            aimAssistTarget = nil
+        end
+    end
 
     if SpeedEnabled and Config['Speed']['Enabled'] then
         local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
