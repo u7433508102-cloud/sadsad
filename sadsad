@@ -797,7 +797,7 @@ if Config['UI'] and Config['UI']['Enabled'] then
     local text = Instance.new("TextLabel")
     text.Parent = gui
     text.AnchorPoint = Vector2.new(0.5, 1)
-    text.Position = UDim2.new(0.5, 0, 1, -115)
+    text.Position = UDim2.new(0.5, 0, 1, -145)
     text.Size = UDim2.new(0, 500, 0, 120)
     text.BackgroundTransparency = 1
     text.TextXAlignment = Enum.TextXAlignment.Center
