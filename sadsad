@@ -537,6 +537,7 @@ end
 if aimAssistTarget then
     if isPlayerKnockedOrKO(aimAssistTarget) then
         aimAssistTarget = nil
+        aimAssistEnabled = false
     end
 end
 
