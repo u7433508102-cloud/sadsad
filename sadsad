@@ -26,19 +26,27 @@ local snaplineDrawing = nil
 -- ========== HELPER FUNCTIONS ==========
 local function isPlayerKnockedOrKO(player)
     if not Config['Settings']['Knock Check'] then return false end
-    if player.Character then
-        local humanoid = player.Character:FindFirstChild("Humanoid")
-        if humanoid and humanoid.Health <= 0 then
-            return true
-        end
-        local bodyEffects = player.Character:FindFirstChild("BodyEffects")
-        if bodyEffects then
-            local ko = bodyEffects:FindFirstChild("K.O")
-            if ko and ko.Value == true then return true end
-            local knocked = bodyEffects:FindFirstChild("Knocked")
-            if knocked and knocked.Value == true then return true end
-        end
+    
+    -- If player has no character, they are effectively dead/unavailable
+    if not player.Character then
+        return true
     end
+    
+    -- Check health
+    local humanoid = player.Character:FindFirstChild("Humanoid")
+    if humanoid and humanoid.Health <= 0 then
+        return true
+    end
+    
+    -- Check body effects (KO, Knocked)
+    local bodyEffects = player.Character:FindFirstChild("BodyEffects")
+    if bodyEffects then
+        local ko = bodyEffects:FindFirstChild("K.O")
+        if ko and ko.Value == true then return true end
+        local knocked = bodyEffects:FindFirstChild("Knocked")
+        if knocked and knocked.Value == true then return true end
+    end
+    
     return false
 end
 
@@ -115,14 +123,14 @@ local function getClosestBodyPart(character)
     return closestPart
 end
 
--- ===== FOV check =====
+-- ===== FOV check (works for both Silent and Assist) =====
 local function isMouseInCircleFOV(radius)
     local mousePos = Vector2.new(Mouse.X, Mouse.Y)
     local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
     return (mousePos - screenCenter).Magnitude <= radius
 end
 
--- Target selection for silent aim
+-- Target selection for silent aim (respects Silent Aim FOV)
 local function findClosestTarget()
     local closestTarget = nil
     local shortestDistance = math.huge
@@ -155,7 +163,7 @@ local function findClosestTarget()
     return closestTarget
 end
 
--- Aim Assist target finder
+-- Aim Assist target finder (respects Aim Assist FOV)
 local function findAimAssistTarget()
     local mousePos = Vector2.new(Mouse.X, Mouse.Y)
     local bestPlayer, bestDist = nil, math.huge
@@ -275,7 +283,7 @@ local function updateFOVCircles()
     end
 end
 
--- ========== TRIGGERBOT ==========
+-- ========== REAL TRIGGERBOT (crosshair-based) ==========
 local function TriggerBot()
     if not Config['Trigger Bot']['Enabled'] then return end
     if not triggerEnabled then return end
@@ -312,7 +320,8 @@ local function TriggerBot()
     lastTriggerClick = tick()
 end
 
--- ========== SILENT AIM HOOK ==========
+-- ========== UNIVERSAL SILENT AIM HOOK ==========
+-- This hook redirects Mouse.Hit when a target is locked AND within FOV
 local oldIndex = getrawmetatable(game).__index
 setreadonly(getrawmetatable(game), false)
 getrawmetatable(game).__index = function(self, key)
@@ -323,6 +332,7 @@ getrawmetatable(game).__index = function(self, key)
                 if char then
                     local player = Players:GetPlayerFromCharacter(char)
                     if player and not isPlayerKnockedOrKO(player) and canSeeTarget(currentTarget) then
+                        -- FOV check: only redirect if mouse is inside the FOV circle
                         if Config['Silent Aim FOV']['Enabled'] and not isMouseInCircleFOV(Config['Silent Aim FOV']['Radius']) then
                             -- outside FOV – do NOT redirect
                         else
@@ -514,22 +524,21 @@ RunService.RenderStepped:Connect(function()
 
     TriggerBot()
 
-    -- === DEATH CHECK (FIXED) ===
-    if currentTarget then
-        local char = currentTarget.Parent
-        if not char or (char and isPlayerKnockedOrKO(Players:GetPlayerFromCharacter(char))) then
-            currentTarget = nil
-            isLocking = false
-            lastVisibleTarget = nil
-        end
+-- === DEATH CHECK (FIXED) ===
+if currentTarget then
+    local player = Players:GetPlayerFromCharacter(currentTarget.Parent)
+    if not player or isPlayerKnockedOrKO(player) then
+        currentTarget = nil
+        isLocking = false
+        lastVisibleTarget = nil
     end
+end
 
-    if aimAssistTarget then
-        local char = aimAssistTarget.Character
-        if not char or isPlayerKnockedOrKO(aimAssistTarget) then
-            aimAssistTarget = nil
-        end
+if aimAssistTarget then
+    if isPlayerKnockedOrKO(aimAssistTarget) then
+        aimAssistTarget = nil
     end
+end
 
     if SpeedEnabled and Config['Speed']['Enabled'] then
         local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
