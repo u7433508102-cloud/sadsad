@@ -832,6 +832,16 @@ if Config['UI'] and Config['UI']['Enabled'] then
     text.TextStrokeTransparency = 0
     text.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 
+    -- Read settings
+    local userTag = Config['UI']['UserTag'] or 'y52v'
+    local textColor = Config['UI']['TextColor'] or Color3.fromRGB(255, 255, 255)
+    local targetColor = Config['UI']['TargetColor'] or Color3.fromRGB(102, 178, 255)
+    local separator = Config['UI']['Separator'] or ' | '
+    local showTarget = Config['UI']['ShowTargetName'] ~= false
+
+    -- Hardcoded brand: Xanax
+    local brandText = '<b><font color="rgb(102,178,255)">Xanax</font></b> <font color="rgb(255,255,255)">@' .. userTag .. '</font>'
+
     local function getTargetName()
         if currentTarget then
             local char = currentTarget.Parent
@@ -847,42 +857,43 @@ if Config['UI'] and Config['UI']['Enabled'] then
 
     game:GetService("RunService").RenderStepped:Connect(function()
         local lines = {}
-        lines[#lines+1] = '<font size="22"><b><font color="rgb(102,178,255)">Xanax</font></b> <font color="rgb(255,255,255)">@y52v</font></font>'
+        lines[#lines+1] = brandText
 
         local parts = {}
 
-        -- Silent Aim: show only if target is locked
         if Config['Silent Aim']['Enabled'] and isLocking and currentTarget then
-            parts[#parts+1] = '<font color="rgb(255,255,255)">Silent</font>'
+            parts[#parts+1] = '<font color="rgb(' .. textColor.R*255 .. ',' .. textColor.G*255 .. ',' .. textColor.B*255 .. ')">Silent</font>'
         end
 
         if Config['Trigger Bot']['Enabled'] and triggerEnabled then
-            parts[#parts+1] = '<font color="rgb(255,255,255)">Trigger</font>'
+            parts[#parts+1] = '<font color="rgb(' .. textColor.R*255 .. ',' .. textColor.G*255 .. ',' .. textColor.B*255 .. ')">Trigger</font>'
         end
 
         if Config['Camera Lock']['Enabled'] and aimAssistEnabled then
-            parts[#parts+1] = '<font color="rgb(255,255,255)">Assist</font>'
+            parts[#parts+1] = '<font color="rgb(' .. textColor.R*255 .. ',' .. textColor.G*255 .. ',' .. textColor.B*255 .. ')">Assist</font>'
         end
 
         if Config['Visual Awareness']['Enabled'] then
-            parts[#parts+1] = '<font color="rgb(255,255,255)">ESP</font>'
+            parts[#parts+1] = '<font color="rgb(' .. textColor.R*255 .. ',' .. textColor.G*255 .. ',' .. textColor.B*255 .. ')">ESP</font>'
         end
 
         if Config['Speed']['Enabled'] and SpeedEnabled then
-            parts[#parts+1] = '<font color="rgb(255,255,255)">Speed</font>'
+            parts[#parts+1] = '<font color="rgb(' .. textColor.R*255 .. ',' .. textColor.G*255 .. ',' .. textColor.B*255 .. ')">Speed</font>'
         end
 
         if Config['Infinite Range']['Enabled'] and infRangeActive then
-            parts[#parts+1] = '<font color="rgb(255,255,255)">Inf</font>'
+            parts[#parts+1] = '<font color="rgb(' .. textColor.R*255 .. ',' .. textColor.G*255 .. ',' .. textColor.B*255 .. ')">Inf</font>'
         end
 
         if #parts > 0 then
-            lines[#lines+1] = table.concat(parts, ' <font color="rgb(255,255,255)">|</font> ')
+            lines[#lines+1] = table.concat(parts, separator)
         end
 
-        local displayTarget = getTargetName()
-        if displayTarget then
-            lines[#lines+1] = '<font color="rgb(255,255,255)">@</font><font color="rgb(102,178,255)">' .. displayTarget .. '</font>'
+        if showTarget then
+            local displayTarget = getTargetName()
+            if displayTarget then
+                lines[#lines+1] = '<font color="rgb(' .. targetColor.R*255 .. ',' .. targetColor.G*255 .. ',' .. targetColor.B*255 .. ')">@' .. displayTarget .. '</font>'
+            end
         end
 
         text.Text = table.concat(lines, "\n")
