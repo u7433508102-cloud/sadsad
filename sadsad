@@ -828,29 +828,22 @@ if Config['UI'] and Config['UI']['Enabled'] then
     text.TextYAlignment = Enum.TextYAlignment.Center
     text.Font = Enum.Font.GothamBold
     text.TextSize = 16
-    text.RichText = true          -- CRUCIAL – enables HTML tags
+    text.RichText = true
     text.TextStrokeTransparency = 0
     text.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 
-    -- Read settings (only tag, colours, separator, show target)
+    -- User settings (only tag)
     local userTag = Config['UI']['UserTag'] or 'y52v'
-    local textColor = Config['UI']['TextColor'] or Color3.fromRGB(255, 255, 255)
-    local targetColor = Config['UI']['TargetColor'] or Color3.fromRGB(102, 178, 255)
-    local separator = Config['UI']['Separator'] or ' | '
-    local showTarget = Config['UI']['ShowTargetName'] ~= false
 
-    -- Convert colors to clean hex (no decimals)
-    local function colorToHex(c)
-        return string.format("#%02X%02X%02X", math.floor(c.R*255), math.floor(c.G*255), math.floor(c.B*255))
-    end
+    -- Hardcoded colours
+    local brandColor = "#800080"   -- purple for Xanax
+    local tagColor = "#FFFFFF"     -- white for @user
+    local featureColor = "#FFFFFF" -- white for Silent/Trigger/etc.
+    local targetColor = "#800080"  -- purple for @target name
+    local separator = " | "
 
-    -- Hardcoded brand: Xanax (users cannot change the name or its colour)
-    local brandColorHex = "#66B2FF"  -- fixed brand colour
-    local textColorHex = colorToHex(textColor)
-    local targetColorHex = colorToHex(targetColor)
-
-    -- Brand line (Xanax is always blue, @tag is white)
-    local brandText = '<b><font color="' .. brandColorHex .. '">Xanax</font></b> <font color="#FFFFFF">@' .. userTag .. '</font>'
+    -- Brand line (Xanax is purple, @tag is white)
+    local brandText = '<b><font color="' .. brandColor .. '">Xanax</font></b> <font color="' .. tagColor .. '">@' .. userTag .. '</font>'
 
     local function getTargetName()
         if currentTarget then
@@ -872,38 +865,37 @@ if Config['UI'] and Config['UI']['Enabled'] then
         local parts = {}
 
         if Config['Silent Aim']['Enabled'] and isLocking and currentTarget then
-            parts[#parts+1] = '<font color="' .. textColorHex .. '">Silent</font>'
+            parts[#parts+1] = '<font color="' .. featureColor .. '">Silent</font>'
         end
 
         if Config['Trigger Bot']['Enabled'] and triggerEnabled then
-            parts[#parts+1] = '<font color="' .. textColorHex .. '">Trigger</font>'
+            parts[#parts+1] = '<font color="' .. featureColor .. '">Trigger</font>'
         end
 
         if Config['Camera Lock']['Enabled'] and aimAssistEnabled then
-            parts[#parts+1] = '<font color="' .. textColorHex .. '">Assist</font>'
+            parts[#parts+1] = '<font color="' .. featureColor .. '">Assist</font>'
         end
 
         if Config['Visual Awareness']['Enabled'] then
-            parts[#parts+1] = '<font color="' .. textColorHex .. '">ESP</font>'
+            parts[#parts+1] = '<font color="' .. featureColor .. '">ESP</font>'
         end
 
         if Config['Speed']['Enabled'] and SpeedEnabled then
-            parts[#parts+1] = '<font color="' .. textColorHex .. '">Speed</font>'
+            parts[#parts+1] = '<font color="' .. featureColor .. '">Speed</font>'
         end
 
         if Config['Infinite Range']['Enabled'] and infRangeActive then
-            parts[#parts+1] = '<font color="' .. textColorHex .. '">Inf</font>'
+            parts[#parts+1] = '<font color="' .. featureColor .. '">Inf</font>'
         end
 
         if #parts > 0 then
             lines[#lines+1] = table.concat(parts, separator)
         end
 
-        if showTarget then
-            local displayTarget = getTargetName()
-            if displayTarget then
-                lines[#lines+1] = '<font color="' .. targetColorHex .. '">@' .. displayTarget .. '</font>'
-            end
+        -- Show target name (always at bottom, purple)
+        local displayTarget = getTargetName()
+        if displayTarget then
+            lines[#lines+1] = '<font color="' .. targetColor .. '">@' .. displayTarget .. '</font>'
         end
 
         text.Text = table.concat(lines, "\n")
