@@ -847,7 +847,7 @@ if Config['UI'] and Config['UI']['Enabled'] then
 
     game:GetService("RunService").RenderStepped:Connect(function()
         local lines = {}
-        lines[#lines+1] = '<font size="22"><b><font color="rgb(102,178,255)">Xanax</font></b> <font color="rgb(255,255,255)">@y52v</font></font>'
+        lines[#lines+1] = '<font size="22"><b><font color="rgb(120,81,169)">Xanax</font></b> <font color="rgb(255,255,255)">@y52v</font></font>'
 
         local parts = {}
 
@@ -882,7 +882,7 @@ if Config['UI'] and Config['UI']['Enabled'] then
 
         local displayTarget = getTargetName()
         if displayTarget then
-            lines[#lines+1] = '<font color="rgb(255,255,255)">@</font><font color="rgb(102,178,255)">' .. displayTarget .. '</font>'
+            lines[#lines+1] = '<font color="rgb(255,255,255)">@</font><font color="rgb(120,81,169)">' .. displayTarget .. '</font>'
         end
 
         text.Text = table.concat(lines, "\n")
