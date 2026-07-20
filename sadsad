@@ -906,6 +906,11 @@ end)
 
 -- ========== UI ==========
 if Config['UI'] and Config['UI']['Enabled'] then
+    local UIcfg = Config['UI']
+
+    -- Helper to get font enum
+    local fontEnum = Enum.Font[UIcfg['Font']] or Enum.Font.GothamBold
+
     local gui = Instance.new("ScreenGui")
     gui.Parent = game.CoreGui
     gui.ResetOnSpawn = false
@@ -913,16 +918,27 @@ if Config['UI'] and Config['UI']['Enabled'] then
     local text = Instance.new("TextLabel")
     text.Parent = gui
     text.AnchorPoint = Vector2.new(0.5, 1)
-    text.Position = UDim2.new(0.5, 0, 1, -72)
+    text.Position = UDim2.new(0.5, UIcfg['Position']['X'] or 0, 1, UIcfg['Position']['Y'] or -72)
     text.Size = UDim2.new(0, 500, 0, 120)
-    text.BackgroundTransparency = 1
+    text.BackgroundTransparency = UIcfg['BackgroundTransparency'] or 1
     text.TextXAlignment = Enum.TextXAlignment.Center
     text.TextYAlignment = Enum.TextYAlignment.Center
-    text.Font = Enum.Font.GothamBold
-    text.TextSize = 16
+    text.Font = fontEnum
+    text.TextSize = UIcfg['TextSize'] or 16
     text.RichText = true
-    text.TextStrokeTransparency = 0
-    text.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    text.TextStrokeTransparency = UIcfg['TextStrokeTransparency'] or 0
+    text.TextStrokeColor3 = UIcfg['TextStrokeColor'] or Color3.fromRGB(0, 0, 0)
+
+    local titleSize = UIcfg['TitleSize'] or 22
+    local titleColor = UIcfg['TitleColor'] or Color3.fromRGB(120, 81, 169)
+    local subtitleColor = UIcfg['SubtitleColor'] or Color3.fromRGB(255, 255, 255)
+    local statusColor = UIcfg['StatusColor'] or Color3.fromRGB(255, 255, 255)
+    local targetColor = UIcfg['TargetColor'] or Color3.fromRGB(120, 81, 169)
+    local sepColor = UIcfg['SeparatorColor'] or Color3.fromRGB(255, 255, 255)
+
+    local function rgbString(color)
+        return string.format("rgb(%d,%d,%d)", color.R*255, color.G*255, color.B*255)
+    end
 
     local function getTargetName()
         if currentTarget then
@@ -939,46 +955,44 @@ if Config['UI'] and Config['UI']['Enabled'] then
 
     game:GetService("RunService").RenderStepped:Connect(function()
         local lines = {}
-        lines[#lines+1] = '<font size="22"><b><font color="rgb(120,81,169)">Xanax</font></b> <font color="rgb(255,255,255)">@y52v</font></font>'
 
-        local parts = {}
+        -- Title line
+        local titleText = UIcfg['TitleText'] or 'Xanax'
+        local subtitleText = UIcfg['SubtitleText'] or '@y52v'
+        lines[#lines+1] = string.format('<font size="%d"><b><font color="%s">%s</font></b> <font color="%s">%s</font></font>',
+            titleSize, rgbString(titleColor), titleText, rgbString(subtitleColor), subtitleText)
 
-        if Config['Silent Aim']['Enabled'] and isLocking and currentTarget then
-            parts[#parts+1] = '<font color="rgb(255,255,255)">Silent</font>'
+        -- Active features line (only if ShowActiveFeatures is true)
+        if UIcfg['ShowActiveFeatures'] ~= false then
+            local parts = {}
+            local function addPart(text, condition)
+                if condition then
+                    parts[#parts+1] = string.format('<font color="%s">%s</font>', rgbString(statusColor), text)
+                end
+            end
+
+            addPart("Silent", Config['Silent Aim']['Enabled'] and isLocking and currentTarget)
+            addPart("Trigger", Config['Trigger Bot']['Enabled'] and triggerEnabled)
+            addPart("Assist", Config['Camera Lock']['Enabled'] and aimAssistEnabled)
+            addPart("ESP", Config['Visual Awareness']['Enabled'])
+            addPart("Speed", Config['Speed']['Enabled'] and SpeedEnabled)
+            addPart("Inf", Config['Infinite Range']['Enabled'] and infRangeActive)
+            addPart("NoDelay", Config['WeaponMods']['NoFireDelay']['Enabled'])
+
+            if #parts > 0 then
+                -- separate with separator
+                local sep = string.format('<font color="%s"> | </font>', rgbString(sepColor))
+                lines[#lines+1] = table.concat(parts, sep)
+            end
         end
 
-        if Config['Trigger Bot']['Enabled'] and triggerEnabled then
-            parts[#parts+1] = '<font color="rgb(255,255,255)">Trigger</font>'
-        end
-
-        if Config['Camera Lock']['Enabled'] and aimAssistEnabled then
-            parts[#parts+1] = '<font color="rgb(255,255,255)">Assist</font>'
-        end
-
-        if Config['Visual Awareness']['Enabled'] then
-            parts[#parts+1] = '<font color="rgb(255,255,255)">ESP</font>'
-        end
-
-        if Config['Speed']['Enabled'] and SpeedEnabled then
-            parts[#parts+1] = '<font color="rgb(255,255,255)">Speed</font>'
-        end
-
-        if Config['Infinite Range']['Enabled'] and infRangeActive then
-            parts[#parts+1] = '<font color="rgb(255,255,255)">Inf</font>'
-        end
-
-        -- Show Rapid Fire status if enabled
-        if Config['Rapid Fire']['Enabled'] then
-            parts[#parts+1] = '<font color="rgb(255,255,255)">NoDelay</font>'
-        end
-
-        if #parts > 0 then
-            lines[#lines+1] = table.concat(parts, ' <font color="rgb(255,255,255)">|</font> ')
-        end
-
-        local displayTarget = getTargetName()
-        if displayTarget then
-            lines[#lines+1] = '<font color="rgb(255,255,255)">@</font><font color="rgb(120,81,169)">' .. displayTarget .. '</font>'
+        -- Target name line
+        if UIcfg['ShowTarget'] ~= false then
+            local displayTarget = getTargetName()
+            if displayTarget then
+                lines[#lines+1] = string.format('<font color="%s">@</font><font color="%s">%s</font>',
+                    rgbString(subtitleColor), rgbString(targetColor), displayTarget)
+            end
         end
 
         text.Text = table.concat(lines, "\n")
