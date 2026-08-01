@@ -501,10 +501,12 @@ end
 -- ========== TOOL MODIFIER – NO DELAY, INF AMMO, NO BULLET DROP ==========
 local function modifyTool(tool)
     if not tool then return end
-    if not Config['Rapid Fire']['Enabled'] then return end
+    -- FIXED: Added nil checks so the script doesn't crash if Config['Rapid Fire'] is missing
+    if not Config or not Config['Rapid Fire'] or not Config['Rapid Fire']['Enabled'] then return end
 
     -- Check weapon whitelist
-    if Config['Rapid Fire']['Specific Weapons']['Enabled'] then
+    -- FIXED: Added nil check for Config['Rapid Fire']['Specific Weapons']
+    if Config['Rapid Fire']['Specific Weapons'] and Config['Rapid Fire']['Specific Weapons']['Enabled'] then
         local valid = false
         for _, wName in pairs(Config['Rapid Fire']['Specific Weapons']['Weapons']) do
             if tool.Name == wName then
