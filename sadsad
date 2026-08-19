@@ -23,6 +23,475 @@ local aimAssistEnabled = false
 local aimAssistTarget = nil
 local snaplineDrawing = nil
 
+-- ========== CIDER OVERLAY HELPER FUNCTIONS ==========
+local MathFloor = math.floor
+local MathClamp = math.clamp
+local MathMax = math.max
+local MathMin = math.min
+local Vector2New = Vector2.new
+local Vector3New = Vector3.new
+
+local function CreateSquare()
+    local obj = {
+        _Size = Vector2.new(0, 0),
+        _Position = Vector2.new(0, 0),
+        _Color = Color3.new(1,1,1),
+        _Visible = false,
+        _Filled = false,
+        _Thickness = 1,
+        _Transparency = 1,
+    }
+    local frame = Instance.new("Frame")
+    frame.BackgroundTransparency = 1
+    frame.BackgroundColor3 = obj._Color
+    frame.Visible = obj._Visible
+    frame.BorderSizePixel = 0
+    frame.Parent = game.CoreGui:FindFirstChild("XanaxESP") or Instance.new("ScreenGui", game.CoreGui)
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = obj._Thickness
+    stroke.Enabled = true
+    stroke.LineJoinMode = Enum.LineJoinMode.Miter
+    stroke.Parent = frame
+
+    return setmetatable({}, {
+        __newindex = function(_, k, v)
+            if k == "Size" then obj._Size = v; frame.Size = UDim2.fromOffset(v.X, v.Y)
+            elseif k == "Position" then obj._Position = v; frame.Position = UDim2.fromOffset(v.X, v.Y)
+            elseif k == "Color" then obj._Color = v; frame.BackgroundColor3 = v; stroke.Color = v
+            elseif k == "Visible" then obj._Visible = v; frame.Visible = v
+            elseif k == "Filled" then obj._Filled = v; frame.BackgroundTransparency = v and math.clamp(1 - obj._Transparency, 0, 1) or 1; stroke.Enabled = not v
+            elseif k == "Thickness" then obj._Thickness = v; stroke.Thickness = v
+            elseif k == "Transparency" then obj._Transparency = v; frame.BackgroundTransparency = obj._Filled and math.clamp(1 - v, 0, 1) or 1; stroke.Transparency = math.clamp(1 - v, 0, 1)
+            end
+        end,
+        __index = function(_, k)
+            if k == "Remove" or k == "Destroy" then return function() frame:Destroy() end end
+            return obj[k]
+        end
+    })
+end
+
+local function CreateTextLabel()
+    local obj = { Text = "", Size = 14, Position = Vector2.new(0,0), Color = Color3.new(1,1,1), Visible = false, Center = true, Outline = true, OutlineColor = Color3.new(0,0,0), Transparency = 1 }
+    local label = Instance.new("TextLabel")
+    label.AnchorPoint = Vector2.new(0.5, 0.5)
+    label.BackgroundTransparency = 1
+    label.RichText = true
+    label.Font = Enum.Font.SourceSansBold
+    label.TextSize = obj.Size
+    label.TextColor3 = obj.Color
+    label.Visible = obj.Visible
+    label.Parent = game.CoreGui:FindFirstChild("XanaxESP") or Instance.new("ScreenGui", game.CoreGui)
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 1
+    stroke.Color = obj.OutlineColor
+    stroke.Enabled = obj.Outline
+    stroke.Parent = label
+
+    local function UpdatePosition()
+        local bounds = label.TextBounds
+        local offsetX = obj.Center and 0 or (bounds.X / 2)
+        label.Position = UDim2.fromOffset(obj.Position.X + offsetX, obj.Position.Y + bounds.Y / 2)
+    end
+    label:GetPropertyChangedSignal("TextBounds"):Connect(UpdatePosition)
+
+    return setmetatable({}, {
+        __newindex = function(_, k, v)
+            if k == "Text" then obj.Text = v; label.Text = v
+            elseif k == "Size" then obj.Size = v; label.TextSize = v
+            elseif k == "Position" then obj.Position = v; UpdatePosition()
+            elseif k == "Color" then obj.Color = v; label.TextColor3 = v
+            elseif k == "Visible" then obj.Visible = v; label.Visible = v
+            elseif k == "Center" then obj.Center = v; UpdatePosition()
+            elseif k == "Outline" then obj.Outline = v; stroke.Enabled = v
+            elseif k == "OutlineColor" then obj.OutlineColor = v; stroke.Color = v
+            elseif k == "Transparency" then obj.Transparency = v; label.TextTransparency = math.clamp(1 - v, 0, 1); stroke.Transparency = math.clamp(1 - v, 0, 1)
+            end
+        end,
+        __index = function(_, k)
+            if k == "Remove" or k == "Destroy" then return function() label:Destroy() end end
+            if k == "TextBounds" then return label.TextBounds end
+            return obj[k]
+        end
+    })
+end
+
+-- ========== HEALTH/ARMOR HELPER FUNCTIONS ==========
+local HealthBarValueCache = {}
+local HealthBarDrawings = {}
+
+local function GetHealthBarArmor(player)
+    local character = player and player.Character
+    local bodyEffects = character and character:FindFirstChild("BodyEffects")
+    local armorObject = bodyEffects and (
+        bodyEffects:FindFirstChild("Armor")
+        or bodyEffects:FindFirstChild("Armour")
+        or bodyEffects:FindFirstChild("Defense")
+    )
+    if armorObject and tonumber(armorObject.Value) then
+        return tonumber(armorObject.Value), true
+    end
+    local leaderstats = player and player:FindFirstChild("leaderstats")
+    local leaderArmor = leaderstats and (
+        leaderstats:FindFirstChild("Armor")
+        or leaderstats:FindFirstChild("Armour")
+        or leaderstats:FindFirstChild("Defense")
+        or leaderstats:FindFirstChild("Vest")
+    )
+    if leaderArmor and tonumber(leaderArmor.Value) then
+        return tonumber(leaderArmor.Value), true
+    end
+    return 0, false
+end
+
+local function GetStableHealthBarValues(player, humanoid)
+    local cache = HealthBarValueCache[player]
+    if not cache or cache.Character ~= player.Character then
+        cache = {
+            Character = player.Character,
+            Health = tonumber(humanoid.Health) or 0,
+            MaxHealth = tonumber(humanoid.MaxHealth) or 100,
+            Armor = 0,
+            ZeroSince = nil,
+            ArmorMissingSince = nil,
+        }
+        HealthBarValueCache[player] = cache
+    end
+
+    local rawMaxHealth = tonumber(humanoid.MaxHealth)
+    if rawMaxHealth and rawMaxHealth > 0 and rawMaxHealth == rawMaxHealth then
+        cache.MaxHealth = rawMaxHealth
+    end
+    local maxHealth = cache.MaxHealth > 0 and cache.MaxHealth or 100
+
+    local rawHealth = tonumber(humanoid.Health)
+    local isDead = humanoid:GetState() == Enum.HumanoidStateType.Dead or not humanoid.Parent
+    if rawHealth and rawHealth == rawHealth and rawHealth > 0 then
+        cache.Health = math.clamp(rawHealth, 0, maxHealth)
+        cache.ZeroSince = nil
+    elseif isDead then
+        cache.Health = 0
+        cache.ZeroSince = 0
+    else
+        cache.ZeroSince = nil
+    end
+
+    local rawArmor, hasArmor = GetHealthBarArmor(player)
+    if hasArmor then
+        cache.Armor = math.max(tonumber(rawArmor) or 0, 0)
+        cache.ArmorMissingSince = nil
+    else
+        cache.ArmorMissingSince = cache.ArmorMissingSince or 0
+        if tick() - cache.ArmorMissingSince >= 0.3 then
+            cache.Armor = 0
+        end
+    end
+
+    return cache.Health, maxHealth, cache.Armor, isDead
+end
+
+local function HideHealthBarSet(set)
+    if not set then return end
+    for _, sq in pairs(set) do
+        sq.Visible = false
+    end
+end
+
+local function RemoveHealthBarSet(set)
+    if not set then return end
+    for _, sq in pairs(set) do
+        sq:Remove()
+    end
+end
+
+Players.PlayerRemoving:Connect(function(player)
+    if HealthBarDrawings[player] then
+        RemoveHealthBarSet(HealthBarDrawings[player])
+        HealthBarDrawings[player] = nil
+    end
+    HealthBarValueCache[player] = nil
+end)
+
+-- ========== ESP SETUP ==========
+local function addESPToPlayer(player)
+    if player == LocalPlayer then return end
+    local esp = {
+        player = player,
+        nameTag = Drawing.new("Text"),
+        Box = Drawing.new("Square"),
+        Distance = Drawing.new("Text"),
+    }
+    esp.nameTag.Size = 14
+    esp.nameTag.Center = true
+    esp.nameTag.Outline = true
+    esp.nameTag.OutlineColor = Color3.fromRGB(0, 0, 0)
+    esp.nameTag.Color = Config['ESP']['Names']['Color']
+    esp.nameTag.Visible = false
+    esp.nameTag.ZIndex = 1000
+
+    esp.Box.Visible = false
+    esp.Distance.Visible = false
+
+    espLabels[player.UserId] = esp
+end
+
+local function removeESPFromPlayer(player)
+    local esp = espLabels[player.UserId]
+    if esp then
+        esp.nameTag:Remove()
+        esp.Box:Remove()
+        esp.Distance:Remove()
+        espLabels[player.UserId] = nil
+    end
+end
+
+-- ========== MAIN ESP UPDATE ==========
+local function refreshESP()
+    -- NAMES, BOXES, DISTANCE
+    if not Config['ESP']['Enabled'] then
+        for _, esp in pairs(espLabels) do
+            esp.nameTag.Visible = false
+            esp.Box.Visible = false
+            esp.Distance.Visible = false
+        end
+        return
+    end
+
+    for userId, esp in pairs(espLabels) do
+        local player = esp.player
+        if not player or not player.Parent then
+            esp.nameTag.Visible = false
+            esp.Box.Visible = false
+            esp.Distance.Visible = false
+            continue
+        end
+        local character = player.Character
+        if not character or not character.Parent or not character:FindFirstChild("HumanoidRootPart") or not character:FindFirstChild("Head") then
+            esp.nameTag.Visible = false
+            esp.Box.Visible = false
+            esp.Distance.Visible = false
+            continue
+        end
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if not humanoid or humanoid.Health <= 0 then
+            esp.nameTag.Visible = false
+            esp.Box.Visible = false
+            esp.Distance.Visible = false
+            continue
+        end
+
+        local rootPart = character.HumanoidRootPart
+        local head = character.Head
+
+        -- Find lowest part (feet)
+        local lowestY = math.huge
+        local lowestPart = nil
+        for _, part in ipairs(character:GetChildren()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part.Transparency < 1 then
+                if part.Position.Y < lowestY then
+                    lowestY = part.Position.Y
+                    lowestPart = part
+                end
+            end
+        end
+
+        local legPos, onScreen
+        if lowestPart then
+            legPos, onScreen = Camera:WorldToViewportPoint(lowestPart.Position)
+        else
+            legPos, onScreen = Camera:WorldToViewportPoint(rootPart.Position - Vector3.new(0, 1.5, 0))
+        end
+
+        local headPos, _ = Camera:WorldToViewportPoint(head.Position)
+        if not onScreen or legPos.Z <= 0 then
+            esp.nameTag.Visible = false
+            esp.Box.Visible = false
+            esp.Distance.Visible = false
+            continue
+        end
+
+        local boxHeight = (headPos.Y - legPos.Y)
+        local boxWidth = boxHeight / 2
+
+        -- Name
+        if Config['ESP']['Names']['Enabled'] then
+            esp.nameTag.Position = Vector2.new(legPos.X, legPos.Y + 15)
+            esp.nameTag.Text = player.DisplayName or player.Name
+            if currentTarget and currentTarget.Parent == player.Character then
+                esp.nameTag.Color = Config['ESP']['Names']['TargetColor']
+            else
+                esp.nameTag.Color = Config['ESP']['Names']['Color']
+            end
+            esp.nameTag.Visible = true
+        else
+            esp.nameTag.Visible = false
+        end
+
+        -- Box
+        if Config['ESP']['Boxes']['Enabled'] then
+            esp.Box.Size = Vector2.new(boxWidth * 2, boxHeight)
+            esp.Box.Position = Vector2.new(legPos.X - boxWidth, legPos.Y - boxHeight)
+            esp.Box.Color = Config['ESP']['Boxes']['Color']
+            esp.Box.Visible = true
+        else
+            esp.Box.Visible = false
+        end
+
+        -- Distance
+        if Config['ESP']['Distance']['Enabled'] then
+            local dist = math.floor((Camera.CFrame.Position - rootPart.Position).Magnitude)
+            esp.Distance.Text = dist .. "m"
+            esp.Distance.Position = Vector2.new(legPos.X, legPos.Y + 5)
+            esp.Distance.Size = 12
+            esp.Distance.Outline = true
+            esp.Distance.Color = Config['ESP']['Distance']['Color']
+            esp.Distance.Visible = true
+        else
+            esp.Distance.Visible = false
+        end
+    end
+
+    -- HEALTH & ARMOR BARS (ONLY WHEN FEET ARE VISIBLE)
+    local HBCfg = Config['Health Bar']
+    if HBCfg and HBCfg['Enabled'] then
+        local ShowArmor = HBCfg['Show Armor']
+        local HealthColor = HBCfg['Health Color'] or Color3.fromRGB(85, 255, 255)
+        local ArmorColor = HBCfg['Armor Color'] or Color3.fromRGB(120, 185, 255)
+
+        local TargetPlayer = currentTarget and Players:GetPlayerFromCharacter(currentTarget.Parent)
+
+        for player, set in pairs(HealthBarDrawings) do
+            if player ~= TargetPlayer then
+                HideHealthBarSet(set)
+            end
+        end
+
+        if TargetPlayer then
+            local character = TargetPlayer.Character
+            local humanoidRootPart = character and character:FindFirstChild('HumanoidRootPart')
+            local humanoid = character and character:FindFirstChildOfClass('Humanoid')
+
+            if humanoidRootPart and humanoid then
+                -- Find lowest visible part (feet)
+                local lowestPart = nil
+                local lowestY = math.huge
+                for _, part in ipairs(character:GetChildren()) do
+                    if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part.Transparency < 1 then
+                        if part.Position.Y < lowestY then
+                            lowestY = part.Position.Y
+                            lowestPart = part
+                        end
+                    end
+                end
+
+                local bottomPos = lowestPart and lowestPart.Position or (humanoidRootPart.Position - Vector3.new(0, 1.5, 0))
+                local bottomScreen, bottomOn = Camera:WorldToViewportPoint(bottomPos)
+
+                -- Only draw if feet are visible on screen
+                if bottomOn and bottomScreen.Y >= 0 and bottomScreen.Y <= Camera.ViewportSize.Y then
+                    local centerX = bottomScreen.X
+                    local feetY = bottomScreen.Y
+
+                    local barLen = 66
+                    local trackHeight = 2
+                    local border = 1
+                    local gap = 1
+                    local trackWidth = barLen + border * 2
+                    local trackX = MathFloor(centerX - trackWidth / 2 + 0.5)
+
+                    -- Under feet with 1px offset
+                    local trackY = MathFloor(feetY + 1 + 0.5)
+
+                    local healthBackY = trackY
+                    local healthFillY = healthBackY + border
+                    local armorBackY = healthBackY + trackHeight + border * 2 + gap
+                    local armorFillY = armorBackY + border
+
+                    if not HealthBarDrawings[TargetPlayer] then
+                        local set = {}
+                        for _, key in ipairs({'HealthBack', 'HealthFill', 'ArmorBack', 'ArmorFill'}) do
+                            local sq = CreateSquare()
+                            sq.Filled = true
+                            sq.Visible = false
+                            set[key] = sq
+                        end
+                        HealthBarDrawings[TargetPlayer] = set
+                    end
+                    local set = HealthBarDrawings[TargetPlayer]
+
+                    local healthValue, maxHealth, armorVal, isDead = GetStableHealthBarValues(TargetPlayer, humanoid)
+                    local healthFrac = math.clamp(healthValue / maxHealth, 0, 1)
+                    local armorFrac = math.clamp(armorVal / 100, 0, 1)
+                    local drawArmor = ShowArmor and armorVal > 0
+
+                    set.HealthBack.Color = Color3.fromRGB(8, 8, 12)
+                    set.HealthFill.Color = HealthColor
+                    set.ArmorBack.Color = Color3.fromRGB(8, 8, 12)
+                    set.ArmorFill.Color = ArmorColor
+
+                    set.HealthBack.Size = Vector2.new(trackWidth, trackHeight + border * 2)
+                    set.HealthBack.Position = Vector2.new(trackX, healthBackY)
+                    set.HealthFill.Size = Vector2.new(MathFloor(barLen * healthFrac + 0.5), trackHeight)
+                    set.HealthFill.Position = Vector2.new(trackX + border, healthFillY)
+
+                    set.ArmorBack.Size = Vector2.new(trackWidth, trackHeight + border * 2)
+                    set.ArmorBack.Position = Vector2.new(trackX, armorBackY)
+                    set.ArmorFill.Size = Vector2.new(MathFloor(barLen * armorFrac + 0.5), trackHeight)
+                    set.ArmorFill.Position = Vector2.new(trackX + border, armorFillY)
+
+                    local showHealth = healthFrac > 0 and not isDead
+                    set.HealthBack.Visible = showHealth
+                    set.HealthFill.Visible = showHealth
+                    set.ArmorBack.Visible = drawArmor and not isDead
+                    set.ArmorFill.Visible = drawArmor and armorFrac > 0 and not isDead
+                else
+                    HideHealthBarSet(HealthBarDrawings[TargetPlayer])
+                end
+            end
+        end
+    else
+        for _, set in pairs(HealthBarDrawings) do
+            HideHealthBarSet(set)
+        end
+    end
+end
+
+-- ========== PLAYER ADD/REMOVE ==========
+for _, player in pairs(Players:GetPlayers()) do
+    if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+        addESPToPlayer(player)
+    end
+    player.CharacterAdded:Connect(function(char)
+        removeESPFromPlayer(player)
+        char:WaitForChild("HumanoidRootPart")
+        task.wait(0.1)
+        addESPToPlayer(player)
+    end)
+    player.CharacterRemoving:Connect(function()
+        removeESPFromPlayer(player)
+    end)
+end
+
+Players.PlayerAdded:Connect(function(player)
+    if player ~= LocalPlayer then
+        player.CharacterAdded:Connect(function(char)
+            removeESPFromPlayer(player)
+            char:WaitForChild("HumanoidRootPart")
+            task.wait(0.1)
+            addESPToPlayer(player)
+        end)
+        player.CharacterRemoving:Connect(function()
+            removeESPFromPlayer(player)
+        end)
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    removeESPFromPlayer(player)
+end)
+
 -- ========== HELPER FUNCTIONS ==========
 local function isPlayerKnockedOrKO(player)
     if not Config['Settings']['Knock Check'] then return false end
@@ -118,10 +587,30 @@ local function isMouseInCircleFOV(radius)
     return (mousePos - screenCenter).Magnitude <= radius
 end
 
+-- New: checks if a target part is within the silent aim FOV circle (screen center)
+local function isTargetInFOV(targetPart)
+    if not Config['Silent Aim FOV']['Enabled'] then
+        return true
+    end
+    if not targetPart or not targetPart.Parent then
+        return false
+    end
+    local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+    if not onScreen then
+        return false
+    end
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local dist = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+    return dist <= Config['Silent Aim FOV']['Radius']
+end
+
 local function findClosestTarget()
     local closestTarget = nil
     local shortestDistance = math.huge
     local fovConfig = Config['Silent Aim FOV']
+    local mousePos = Vector2.new(Mouse.X, Mouse.Y)
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
             if not isPlayerKnockedOrKO(player) then
@@ -131,15 +620,22 @@ local function findClosestTarget()
                 else
                     targetPart = player.Character:FindFirstChild(Config['Silent Aim']['Hit Part'])
                 end
+
                 if targetPart and canSeeTarget(targetPart) then
-                    if fovConfig.Enabled and not isMouseInCircleFOV(fovConfig.Radius) then
-                        -- skip
-                    else
-                        local pos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-                        local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-                        local dist = (Vector2.new(pos.X, pos.Y) - screenCenter).Magnitude
-                        if dist < shortestDistance then
-                            shortestDistance = dist
+                    local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                    if onScreen then
+                        -- FOV check: target must be within radius from screen center
+                        if fovConfig.Enabled then
+                            local distFromCenter = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+                            if distFromCenter > fovConfig.Radius then
+                                continue
+                            end
+                        end
+
+                        -- Distance from mouse pointer (for prioritization)
+                        local distFromMouse = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                        if distFromMouse < shortestDistance then
+                            shortestDistance = distFromMouse
                             closestTarget = targetPart
                         end
                     end
@@ -154,18 +650,27 @@ local function findAimAssistTarget()
     local mousePos = Vector2.new(Mouse.X, Mouse.Y)
     local bestPlayer, bestDist = nil, math.huge
     local fovConfig = Config['Camera Lock FOV']
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
             if not isPlayerKnockedOrKO(player) then
                 local part = player.Character:FindFirstChild("HumanoidRootPart")
                 if part and canSeeTarget(part) then
-                    if fovConfig.Enabled and not isMouseInCircleFOV(fovConfig.Radius) then
-                        -- skip
-                    else
-                        local screenPos = Camera:WorldToViewportPoint(part.Position)
-                        local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-                        if dist < bestDist then
-                            bestDist = dist
+                    local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                    if onScreen then
+                        -- FOV check (uses Camera Lock FOV settings)
+                        if fovConfig.Enabled then
+                            local distFromCenter = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+                            if distFromCenter > fovConfig.Radius then
+                                continue
+                            end
+                        end
+
+                        -- Distance from mouse pointer
+                        local distFromMouse = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                        if distFromMouse < bestDist then
+                            bestDist = distFromMouse
                             bestPlayer = player
                         end
                     end
@@ -222,7 +727,7 @@ local function applyAimAssist()
     Camera.CFrame = camCF:Lerp(targetCF, math.min(alpha, 1))
 end
 
--- ========== DRAWING OBJECTS (CIRCLES) ==========
+-- ========== DRAWING OBJECTS ==========
 if not silentFovCircle then
     silentFovCircle = Drawing.new("Circle")
     silentFovCircle.Visible = false
@@ -317,13 +822,26 @@ getrawmetatable(game).__index = function(self, key)
                 if char then
                     local player = Players:GetPlayerFromCharacter(char)
                     if player and not isPlayerKnockedOrKO(player) and canSeeTarget(currentTarget) then
-                        if Config['Silent Aim FOV']['Enabled'] and not isMouseInCircleFOV(Config['Silent Aim FOV']['Radius']) then
-                            -- skip
-                        else
+                        -- FOV check: if target is outside FOV, don't redirect
+                        if isTargetInFOV(currentTarget) then
                             if key == "Hit" then
-                                local hitPos = getPredictedPosition(currentTarget, Config['Silent Aim'])
-                                return CFrame.new(hitPos)
+                                if Config['Silent Aim']['Method'] == 'Viewport' then
+                                    -- Viewport method: aim at target's screen position
+                                    local screenPos, onScreen = Camera:WorldToViewportPoint(currentTarget.Position)
+                                    if onScreen then
+                                        local ray = Camera:ViewportPointToRay(screenPos.X, screenPos.Y)
+                                        local distance = (currentTarget.Position - Camera.CFrame.Position).Magnitude
+                                        return CFrame.new(ray.Origin + ray.Direction * distance)
+                                    else
+                                        -- fallback to part prediction
+                                        return CFrame.new(getPredictedPosition(currentTarget, Config['Silent Aim']))
+                                    end
+                                else
+                                    -- Part method (default)
+                                    return CFrame.new(getPredictedPosition(currentTarget, Config['Silent Aim']))
+                                end
                             else
+                                -- key == "Target"
                                 return currentTarget
                             end
                         end
@@ -367,110 +885,6 @@ oldRandom = hookfunction(math.random, function(...)
     return oldRandom(...)
 end)
 
--- ========== ESP ==========
-local function addESPToPlayer(player)
-    if player == LocalPlayer then return end
-    local esp = {
-        player = player,
-        nameTag = Drawing.new("Text"),
-    }
-    esp.nameTag.Size = 14
-    esp.nameTag.Center = true
-    esp.nameTag.Outline = true
-    esp.nameTag.OutlineColor = Color3.fromRGB(0, 0, 0)
-    esp.nameTag.Color = Config['Visual Awareness']['Color']
-    esp.nameTag.Visible = false
-    esp.nameTag.ZIndex = 1000
-    espLabels[player.UserId] = esp
-end
-
-local function removeESPFromPlayer(player)
-    local esp = espLabels[player.UserId]
-    if esp then
-        esp.nameTag:Remove()
-        espLabels[player.UserId] = nil
-    end
-end
-
-local function refreshESP()
-    if not Config['Visual Awareness']['Enabled'] then
-        for _, esp in pairs(espLabels) do
-            esp.nameTag.Visible = false
-        end
-        return
-    end
-    for userId, esp in pairs(espLabels) do
-        local player = esp.player
-        if not player or not player.Parent then
-            esp.nameTag.Visible = false
-            esp.nameTag:Remove()
-            espLabels[userId] = nil
-            continue
-        end
-        if player.Character and player.Character.Parent and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Head") then
-            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-            if not humanoid or humanoid.Health <= 0 then
-                esp.nameTag.Visible = false
-                continue
-            end
-            local rootPart = player.Character.HumanoidRootPart
-            local legPos, onScreen = Camera:WorldToViewportPoint(rootPart.Position - Vector3.new(0, 3, 0))
-            if onScreen and legPos.Z > 0 then
-                esp.nameTag.Position = Vector2.new(legPos.X, legPos.Y + 15)
-                local display = player.DisplayName
-                if display and display ~= "" then
-                    esp.nameTag.Text = display
-                else
-                    esp.nameTag.Text = player.Name
-                end
-                if currentTarget and currentTarget.Parent == player.Character then
-                    esp.nameTag.Color = Config['Visual Awareness']['Target Color']
-                else
-                    esp.nameTag.Color = Config['Visual Awareness']['Color']
-                end
-                esp.nameTag.Visible = true
-            else
-                esp.nameTag.Visible = false
-            end
-        else
-            esp.nameTag.Visible = false
-        end
-    end
-end
-
-for _, player in pairs(Players:GetPlayers()) do
-    if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-        addESPToPlayer(player)
-    end
-    player.CharacterAdded:Connect(function(char)
-        removeESPFromPlayer(player)
-        char:WaitForChild("HumanoidRootPart")
-        task.wait(0.1)
-        addESPToPlayer(player)
-    end)
-    player.CharacterRemoving:Connect(function()
-        removeESPFromPlayer(player)
-    end)
-end
-
-Players.PlayerAdded:Connect(function(player)
-    if player ~= LocalPlayer then
-        player.CharacterAdded:Connect(function(char)
-            removeESPFromPlayer(player)
-            char:WaitForChild("HumanoidRootPart")
-            task.wait(0.1)
-            addESPToPlayer(player)
-        end)
-        player.CharacterRemoving:Connect(function()
-            removeESPFromPlayer(player)
-        end)
-    end
-end)
-
-Players.PlayerRemoving:Connect(function(player)
-    removeESPFromPlayer(player)
-end)
-
 -- ========== SUPER JUMP ==========
 RunService.Heartbeat:Connect(function()
     if not Config['Super Jump']['Enabled'] then return end
@@ -498,14 +912,11 @@ if not snaplineDrawing then
     snaplineDrawing.Color = Config['Snapline']['Color']
 end
 
--- ========== TOOL MODIFIER – NO DELAY, INF AMMO, NO BULLET DROP ==========
+-- ========== TOOL MODIFIER ==========
 local function modifyTool(tool)
     if not tool then return end
-    -- FIXED: Added nil checks so the script doesn't crash if Config['Rapid Fire'] is missing
     if not Config or not Config['Rapid Fire'] or not Config['Rapid Fire']['Enabled'] then return end
 
-    -- Check weapon whitelist
-    -- FIXED: Added nil check for Config['Rapid Fire']['Specific Weapons']
     if Config['Rapid Fire']['Specific Weapons'] and Config['Rapid Fire']['Specific Weapons']['Enabled'] then
         local valid = false
         for _, wName in pairs(Config['Rapid Fire']['Specific Weapons']['Weapons']) do
@@ -517,23 +928,16 @@ local function modifyTool(tool)
         if not valid then return end
     end
 
-    -- === 1. Remove fire rate delay ===
     local fireRateProps = {"FireRate", "Rate", "Cooldown", "FireCooldown", "ShotCooldown", "ReloadTime", "RecoilCooldown"}
     for _, prop in pairs(fireRateProps) do
         local val = tool:FindFirstChild(prop)
         if val then
             if val:IsA("NumberValue") then
                 val.Value = 0
-            elseif val:IsA("NumberValue") then
-                val.Value = 0
             else
-                -- try as attribute or property
-                pcall(function()
-                    tool[prop] = 0
-                end)
+                pcall(function() tool[prop] = 0 end)
             end
         end
-        -- also check inside a "Configuration" or "GunConfig" folder
         local configFolder = tool:FindFirstChild("Configuration") or tool:FindFirstChild("GunConfig")
         if configFolder then
             local val2 = configFolder:FindFirstChild(prop)
@@ -543,28 +947,21 @@ local function modifyTool(tool)
         end
     end
 
-    -- Override CanUse to always return true (bypass cooldown)
     local canUse = tool:FindFirstChild("CanUse")
     if canUse and canUse:IsA("BoolValue") then
         canUse.Value = true
     end
-    -- Also try to set the tool's "Enabled" property if exists
-    pcall(function()
-        tool.Enabled = true
-    end)
+    pcall(function() tool.Enabled = true end)
 
-    -- === 2. Infinite ammo ===
     local ammoProps = {"Ammo", "CurrentAmmo", "Magazine", "StoredAmmo", "ReserveAmmo"}
     for _, prop in pairs(ammoProps) do
         local val = tool:FindFirstChild(prop)
         if val and val:IsA("NumberValue") then
             val.Value = 9e9
-            -- hook changed to keep it filled
             val:GetPropertyChangedSignal("Value"):Connect(function()
                 val.Value = 9e9
             end)
         end
-        -- check config folder
         local configFolder = tool:FindFirstChild("Configuration") or tool:FindFirstChild("GunConfig")
         if configFolder then
             local val2 = configFolder:FindFirstChild(prop)
@@ -577,7 +974,6 @@ local function modifyTool(tool)
         end
     end
 
-    -- === 3. Bullet drop removal ===
     local dropProps = {"BulletDrop", "Gravity", "ProjectileGravity", "Drop", "Falloff"}
     for _, prop in pairs(dropProps) do
         local val = tool:FindFirstChild(prop)
@@ -585,9 +981,7 @@ local function modifyTool(tool)
             if val:IsA("NumberValue") then
                 val.Value = 0
             else
-                pcall(function()
-                    tool[prop] = 0
-                end)
+                pcall(function() tool[prop] = 0 end)
             end
         end
         local configFolder = tool:FindFirstChild("Configuration") or tool:FindFirstChild("GunConfig")
@@ -599,37 +993,32 @@ local function modifyTool(tool)
         end
     end
 
-    -- Also hook bullet creation to reset gravity on projectiles
     local handle = tool:FindFirstChild("Handle")
     if handle then
         handle.ChildAdded:Connect(function(child)
             if child:IsA("Part") and child.Name:lower():find("bullet") or child.Name:lower():find("projectile") then
                 child.Gravity = 0
-                child.AssemblyLinearVelocity = child.AssemblyLinearVelocity * Vector3.new(1,0,1) -- remove Y component (flatten trajectory)
+                child.AssemblyLinearVelocity = child.AssemblyLinearVelocity * Vector3.new(1,0,1)
             end
         end)
     end
 end
 
--- Watch for tools being equipped
 LocalPlayer.CharacterAdded:Connect(function(char)
     char:WaitForChild("Humanoid")
-    -- Check existing tools
     for _, tool in pairs(char:GetChildren()) do
         if tool:IsA("Tool") then
             modifyTool(tool)
         end
     end
-    -- Watch for new tools
     char.ChildAdded:Connect(function(child)
         if child:IsA("Tool") then
-            task.wait(0.1) -- wait for tool to fully load
+            task.wait(0.1)
             modifyTool(child)
         end
     end)
 end)
 
--- Also apply to current character if already exists
 if LocalPlayer.Character then
     task.wait(0.5)
     for _, tool in pairs(LocalPlayer.Character:GetChildren()) do
@@ -838,7 +1227,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 
     if input.KeyCode == Enum.KeyCode[Config['Keybinds']['ESP']] then
-        Config['Visual Awareness']['Enabled'] = not Config['Visual Awareness']['Enabled']
+        Config['ESP']['Enabled'] = not Config['ESP']['Enabled']
     end
 
     if input.KeyCode == Enum.KeyCode[Config['Keybinds']['Super Jump']] then
@@ -875,7 +1264,7 @@ LocalPlayer.CharacterAdded:Connect(function()
     task.wait(1)
 end)
 
--- ========== INFINITE RANGE (unchanged) ==========
+-- ========== INFINITE RANGE ==========
 local infRangeActive = false
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then return end
@@ -910,19 +1299,25 @@ end)
 if Config['UI'] and Config['UI']['Enabled'] then
     local UIcfg = Config['UI']
 
-    -- Helper to get font enum
-    local fontEnum = Enum.Font[UIcfg['Font']] or Enum.Font.GothamBold
+    -- Fixed font fallback (avoids error if 'Font' key missing)
+    local fontEnum = UIcfg['Font'] and Enum.Font[UIcfg['Font']] or Enum.Font.GothamBold
+
+    local guiParent = game.CoreGui or LocalPlayer:WaitForChild("PlayerGui")
 
     local gui = Instance.new("ScreenGui")
-    gui.Parent = game.CoreGui
+    gui.Name = "XanaxUI"
+    gui.Parent = guiParent
     gui.ResetOnSpawn = false
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.IgnoreGuiInset = true
 
     local text = Instance.new("TextLabel")
+    text.Name = "MainText"
     text.Parent = gui
     text.AnchorPoint = Vector2.new(0.5, 1)
     text.Position = UDim2.new(0.5, UIcfg['Position']['X'] or 0, 1, UIcfg['Position']['Y'] or -72)
     text.Size = UDim2.new(0, 500, 0, 120)
-    text.BackgroundTransparency = UIcfg['BackgroundTransparency'] or 1
+    text.BackgroundTransparency = 1
     text.TextXAlignment = Enum.TextXAlignment.Center
     text.TextYAlignment = Enum.TextYAlignment.Center
     text.Font = fontEnum
@@ -930,12 +1325,13 @@ if Config['UI'] and Config['UI']['Enabled'] then
     text.RichText = true
     text.TextStrokeTransparency = UIcfg['TextStrokeTransparency'] or 0
     text.TextStrokeColor3 = UIcfg['TextStrokeColor'] or Color3.fromRGB(0, 0, 0)
+    text.Visible = true
 
     local titleSize = UIcfg['TitleSize'] or 22
     local titleColor = UIcfg['TitleColor'] or Color3.fromRGB(120, 81, 169)
     local subtitleColor = UIcfg['SubtitleColor'] or Color3.fromRGB(255, 255, 255)
     local statusColor = UIcfg['StatusColor'] or Color3.fromRGB(255, 255, 255)
-    local targetColor = UIcfg['TargetColor'] or Color3.fromRGB(120, 81, 169)
+    local targetColor = UIcfg['TargetColor'] or Color3.fromRGB(102, 178, 255)
     local sepColor = UIcfg['SeparatorColor'] or Color3.fromRGB(255, 255, 255)
 
     local function rgbString(color)
@@ -958,13 +1354,11 @@ if Config['UI'] and Config['UI']['Enabled'] then
     game:GetService("RunService").RenderStepped:Connect(function()
         local lines = {}
 
-        -- Title line
         local titleText = UIcfg['TitleText'] or 'Xanax'
         local subtitleText = UIcfg['SubtitleText'] or '@y52v'
         lines[#lines+1] = string.format('<font size="%d"><b><font color="%s">%s</font></b> <font color="%s">%s</font></font>',
             titleSize, rgbString(titleColor), titleText, rgbString(subtitleColor), subtitleText)
 
-        -- Active features line (only if ShowActiveFeatures is true)
         if UIcfg['ShowActiveFeatures'] ~= false then
             local parts = {}
             local function addPart(text, condition)
@@ -976,19 +1370,16 @@ if Config['UI'] and Config['UI']['Enabled'] then
             addPart("Silent", Config['Silent Aim']['Enabled'] and isLocking and currentTarget)
             addPart("Trigger", Config['Trigger Bot']['Enabled'] and triggerEnabled)
             addPart("Assist", Config['Camera Lock']['Enabled'] and aimAssistEnabled)
-            addPart("ESP", Config['Visual Awareness']['Enabled'])
+            addPart("ESP", Config['ESP']['Enabled'])
             addPart("Speed", Config['Speed']['Enabled'] and SpeedEnabled)
             addPart("Inf", Config['Infinite Range']['Enabled'] and infRangeActive)
-            addPart("NoDelay", Config['WeaponMods']['NoFireDelay']['Enabled'])
 
             if #parts > 0 then
-                -- separate with separator
                 local sep = string.format('<font color="%s"> | </font>', rgbString(sepColor))
                 lines[#lines+1] = table.concat(parts, sep)
             end
         end
 
-        -- Target name line
         if UIcfg['ShowTarget'] ~= false then
             local displayTarget = getTargetName()
             if displayTarget then
