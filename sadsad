@@ -18,6 +18,24 @@ if not ok then
     return
 end
 
+-- CoreGui fallback for executors that hide it
+if not game.CoreGui then
+    pcall(function()
+        if gethui then
+            game.CoreGui = gethui()
+        end
+    end)
+end
+if not game.CoreGui then
+    pcall(function()
+        local sg = Instance.new("ScreenGui")
+        sg.Name = "XanaxCoreGui"
+        sg.ResetOnSpawn = false
+        sg.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+        game.CoreGui = sg
+    end)
+end
+
 -- ══════════════════════════════════════════════════════════════
 -- LICENSE KEY VALIDATION
 -- ══════════════════════════════════════════════════════════════
@@ -1542,11 +1560,11 @@ if not HK.random then
             HK.depth_random = HK.depth_random - 1
             return originalRandom(...)
         end
+        local args = {...}
         local result = originalRandom(...)
         pcall(function()
             if checkcaller() then return end
             if not (Config and Config['Spread'] and Config['Spread']['Enabled']) then return end
-            local args = {...}
             local isRecoil = (#args == 0) or (args[1] == -0.05 and args[2] == 0.05) or (args[1] == -0.1) or (args[1] == -0.05)
             if not isRecoil then return end
             local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
@@ -1918,8 +1936,8 @@ do
         local KICK_MSG = ModCfg['Kick Message'] or "xanax.wtf — A moderator has joined the game!"
         local function checkMod(player)
             if player == LocalPlayer then return false end
-            local ok, isIn = pcall(function() return player:IsInGroup(COMMUNITY_ID) end)
-            if not ok or not isIn then return false end
+            local ok2, isIn = pcall(function() return player:IsInGroup(COMMUNITY_ID) end)
+            if not ok2 or not isIn then return false end
             pcall(function() LocalPlayer:Kick(KICK_MSG) end)
             return true
         end
@@ -2092,7 +2110,6 @@ do
     if HoodCfg then
         local MainEvent = ReplicatedStorage:WaitForChild("MainEvent", 10)
 
-        -- Auto Stomp
         local stompState = { active = false, running = false, returnCFrame = nil, target = nil }
 
         local function findKnockedPlayer()
@@ -2173,7 +2190,6 @@ do
             if v then startAutoStompLoop() else stopAutoStomp() end
         end
 
-        -- Auto Reload
         if HoodCfg['Auto Reload'] and HoodCfg['Auto Reload']['Enabled'] then
             local ReloadCfg = HoodCfg['Auto Reload']
             local lastReload = {}
@@ -2199,7 +2215,6 @@ do
             end))
         end
 
-        -- Anti Stomp
         if HoodCfg['Anti Stomp'] and HoodCfg['Anti Stomp']['Enabled'] then
             local antiKey = HoodCfg['Anti Stomp']['Key'] or 'P'
             table.insert(connections, UserInputService.InputBegan:Connect(function(input, gp)
@@ -2216,7 +2231,6 @@ do
             end))
         end
 
-        -- Fake AFK
         if HoodCfg['Fake AFK'] and HoodCfg['Fake AFK']['Enabled'] and MainEvent then
             local interval = HoodCfg['Fake AFK']['Interval'] or 0.5
             task.spawn(function()
@@ -2252,7 +2266,7 @@ do
 end
 
 -- ══════════════════════════════════════════════════════════════
--- UI (xanax.wtf style)
+-- UI
 -- ══════════════════════════════════════════════════════════════
 if Config['UI'] and Config['UI']['Enabled'] then
     local UI = Config['UI']
