@@ -1,5 +1,6 @@
 -- ══════════════════════════════════════════════════════════════
--- XANAX.WTF — FULL SCRIPT (Sensory ESP box)
+-- XANAX.WTF — MAIN SCRIPT
+-- Requires shared.Xanax (config) to be loaded first.
 -- ══════════════════════════════════════════════════════════════
 
 local ok, err = pcall(function()
@@ -28,18 +29,9 @@ if not game.CoreGui then
 end
 
 local VALID_KEYS = {
-    "DhxyqMVyFcTmyGNrTaZqMbnWOWDClLww","aBcDeFgHiJkLmNoPqRsTuVwXyZ012345",
-    "ZzYyXxWwVvUuTtSsRrQqPpOoNnMmLlKk","1234567890abcdefghijklmnopqrstuv",
-    "qwertyuiopasdfghjklzxcvbnm123456","ASDFGHJKLQWERTYUIOPZXCVBNM098765",
-    "PlOkIjUhYgTfRdEsWqAzXcVbNm123456","MNBVCXZLKJHGFDSAPOIUYTREWQ09876",
-    "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6","p6o5n4m3l2k1j0i9h8g7f6e5d4c3b2a1",
-    "XyZ123AbC456DeF789GhI012JkL345M","NopQrsTuvWxyZ012AbcDefGhiJklMno",
-    "PqrStuVwxYz123AbcDefGhiJklMnOpQ","StuVwxYz123AbcDefGhiJklMnOpQrSt",
-    "UvwXyz123AbcDefGhiJklMnOpQrStuV","WxyZ123AbcDefGhiJklMnOpQrStuVwX",
-    "Yz123AbcDefGhiJklMnOpQrStuVwXyZ","123AbcDefGhiJklMnOpQrStuVwXyZ12",
-    "AbcDefGhiJklMnOpQrStuVwXyZ12345","DefGhiJklMnOpQrStuVwXyZ12345678",
+    "DhxyqMVyFcTmyGNrTaZqMbnWOWDClLww",
 }
-local provided_key = getgenv().XanaxKey or script_key or ""
+local provided_key = getgenv().XanaxKey or ""
 local key_valid = false
 for _, v in ipairs(VALID_KEYS) do if provided_key == v then key_valid = true; break end end
 if not key_valid then
@@ -60,6 +52,7 @@ local RunService          = game:GetService("RunService")
 local Workspace           = game:GetService("Workspace")
 local ReplicatedStorage   = game:GetService("ReplicatedStorage")
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local TeleportService     = game:GetService("TeleportService")
 local Camera              = Workspace.CurrentCamera
 local LocalPlayer         = Players.LocalPlayer
 local Mouse               = LocalPlayer:GetMouse()
@@ -70,7 +63,7 @@ local currentTargetPoint = nil
 local isLocking = false
 local triggerEnabled = false
 local silentFovCircle, camlockFovCircle
-local espLabels = {}
+local espData = {}
 local skeletonCache = {}
 local arrowDrawings = {}
 local ChamsCache = {}
@@ -82,7 +75,6 @@ local snaplineDrawing = nil
 local infRangeActive = false
 local MultiPointCache = { sweep = 0, m = {} }
 local HealthBarValueCache = {}
-local HealthBarDrawings = {}
 local desyncActive, desyncRoot, desyncHumanoid, desyncOriginalCFrame, desyncCircle, desyncLine
 local spectateActive, spectateTarget = false, nil
 local bulletTPActive = false
@@ -90,109 +82,16 @@ local bulletTPActive = false
 local MathFloor = math.floor
 local function getRootPart(p) return p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") end
 
--- ══════════════════════════════════════════════════════════════
--- ESP GUI (Sensory-style: IgnoreGuiInset TRUE, no offset)
--- ══════════════════════════════════════════════════════════════
-local ESPGui
-do
-    local ex = game.CoreGui:FindFirstChild("XanaxESP")
-    if ex then ex:Destroy() end
-    ESPGui = Instance.new("ScreenGui")
-    ESPGui.Name = "XanaxESP"
-    ESPGui.ResetOnSpawn = false
-    ESPGui.IgnoreGuiInset = true
-    ESPGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    local pok = pcall(function() ESPGui.Parent = game.CoreGui end)
-    if not pok or not ESPGui.Parent then ESPGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
-end
-
-local function CreateLine(parent)
-    local line = Instance.new("Frame")
-    line.BorderSizePixel = 0
-    line.BackgroundColor3 = Config['ESP']['Boxes']['Color'] or Color3.fromRGB(255,255,255)
-    line.ZIndex = 2
-    line.Parent = parent
-
-    local outline = Instance.new("Frame")
-    outline.BorderSizePixel = 0
-    outline.BackgroundColor3 = (Config['ESP']['Boxes']['Outlines'] and Config['ESP']['Boxes']['Outlines']['Color']) or Color3.fromRGB(0,0,0)
-    outline.ZIndex = 1
-    outline.Parent = line
-
-    return line, outline
-end
-
-local function CreateSquare()
-    local obj = { _Size=Vector2.new(0,0), _Position=Vector2.new(0,0), _Color=Color3.new(1,1,1), _Visible=false, _Filled=false, _Thickness=1, _Transparency=1 }
-    local frame = Instance.new("Frame")
-    frame.BackgroundTransparency=1; frame.BackgroundColor3=obj._Color
-    frame.Visible=obj._Visible; frame.BorderSizePixel=0; frame.Parent=ESPGui
-    local stroke = Instance.new("UIStroke"); stroke.Thickness=obj._Thickness; stroke.Parent=frame
-    return setmetatable({}, {
-        __newindex=function(_,k,v)
-            if k=="Size" then obj._Size=v; frame.Size=UDim2.fromOffset(v.X,v.Y)
-            elseif k=="Position" then obj._Position=v; frame.Position=UDim2.fromOffset(v.X,v.Y)
-            elseif k=="Color" then obj._Color=v; frame.BackgroundColor3=v; stroke.Color=v
-            elseif k=="Visible" then obj._Visible=v; frame.Visible=v
-            elseif k=="Filled" then obj._Filled=v; frame.BackgroundTransparency=v and math.clamp(1-obj._Transparency,0,1) or 1; stroke.Enabled=not v
-            elseif k=="Thickness" then obj._Thickness=v; stroke.Thickness=v
-            elseif k=="Transparency" then obj._Transparency=v
-                frame.BackgroundTransparency=obj._Filled and math.clamp(1-v,0,1) or 1
-                stroke.Transparency=math.clamp(1-v,0,1) end
-        end,
-        __index=function(_,k)
-            if k=="Remove" or k=="Destroy" then return function() frame:Destroy() end end
-            return obj[k]
-        end
-    })
-end
-
-local function GetHealthBarArmor(player)
-    local ch = player and player.Character
-    local be = ch and ch:FindFirstChild("BodyEffects")
-    local ao = be and (be:FindFirstChild("Armor") or be:FindFirstChild("Armour") or be:FindFirstChild("Defense"))
-    if ao and tonumber(ao.Value) then return tonumber(ao.Value), true end
-    local ls = player and player:FindFirstChild("leaderstats")
-    local la = ls and (ls:FindFirstChild("Armor") or ls:FindFirstChild("Armour") or ls:FindFirstChild("Defense") or ls:FindFirstChild("Vest"))
-    if la and tonumber(la.Value) then return tonumber(la.Value), true end
-    return 0, false
-end
-
-local function GetStableHealthBarValues(player, humanoid)
-    local cache = HealthBarValueCache[player]
-    if not cache or cache.Character ~= player.Character then
-        cache = { Character=player.Character, Health=tonumber(humanoid.Health) or 0, MaxHealth=tonumber(humanoid.MaxHealth) or 100, Armor=0, ZeroSince=nil, ArmorMissingSince=nil }
-        HealthBarValueCache[player] = cache
-    end
-    local rMax = tonumber(humanoid.MaxHealth)
-    if rMax and rMax > 0 and rMax == rMax then cache.MaxHealth = rMax end
-    local maxHealth = cache.MaxHealth > 0 and cache.MaxHealth or 100
-    local rHealth = tonumber(humanoid.Health)
-    local isDead = humanoid:GetState() == Enum.HumanoidStateType.Dead or not humanoid.Parent
-    if rHealth and rHealth == rHealth and rHealth > 0 then cache.Health = math.clamp(rHealth,0,maxHealth); cache.ZeroSince=nil
-    elseif isDead then cache.Health=0; cache.ZeroSince=0 else cache.ZeroSince=nil end
-    local rArmor, hasArmor = GetHealthBarArmor(player)
-    if hasArmor then cache.Armor=math.max(tonumber(rArmor) or 0,0); cache.ArmorMissingSince=nil
-    else cache.ArmorMissingSince = cache.ArmorMissingSince or 0
-        if tick()-cache.ArmorMissingSince >= 0.3 then cache.Armor=0 end end
-    return cache.Health, maxHealth, cache.Armor, isDead
-end
-
-local function HideHealthBarSet(set) if not set then return end; for _,sq in pairs(set) do sq.Visible=false end end
-local function RemoveHealthBarSet(set) if not set then return end; for _,sq in pairs(set) do sq:Remove() end end
-
 local function gaussianRandom(mean, sd)
     local u1 = math.random(); if u1 < 1e-6 then u1 = 1e-6 end
     local u2 = math.random()
     return mean + math.sqrt(-2*math.log(u1))*math.cos(2*math.pi*u2)*sd
 end
 
-local function getPingMs() local p=0; pcall(function() p=game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue() end); return p end
-local function getPingFactor()
-    local s = getPingMs()/1000
-    if s <= 0.05 then return 1 end
-    if s >= 0.25 then return 0 end
-    return 1-(s-0.05)/0.2
+local function getPingMs()
+    local p = 0
+    pcall(function() p = game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue() end)
+    return p
 end
 
 local function packetWallClear(origin, targetPos, targetChar)
@@ -212,15 +111,63 @@ local function packetWallClear(origin, targetPos, targetChar)
     return true
 end
 
-local function isWallbangActive() return Config['Wallbang'] and Config['Wallbang']['Enabled'] == true end
+local function isWallbangActive() return Config.Wallbang and Config.Wallbang.Enabled == true end
+
+local function isPlayerKnockedOrKO(player)
+    if not Config.Settings.KnockCheck then return false end
+    if not player.Character then return true end
+    local h = player.Character:FindFirstChild("Humanoid")
+    if h and h.Health <= 0 then return true end
+    local be = player.Character:FindFirstChild("BodyEffects")
+    if be then
+        local ko = be:FindFirstChild("K.O"); if ko and ko.Value == true then return true end
+        local kn = be:FindFirstChild("Knocked"); if kn and kn.Value == true then return true end
+    end
+    return false
+end
+
+local function isSelfKnocked()
+    if LocalPlayer.Character then
+        local be = LocalPlayer.Character:FindFirstChild("BodyEffects")
+        if be then
+            local ko = be:FindFirstChild("K.O"); if ko and ko.Value == true then return true end
+            local kn = be:FindFirstChild("Knocked"); if kn and kn.Value == true then return true end
+        end
+    end
+    return false
+end
+
+local function canSeeTarget(part)
+    if isWallbangActive() then return true end
+    if not Config.Settings.VisibleCheck then return true end
+    if not part or not part.Parent then return false end
+    local ch = part.Parent
+    local hum = ch:FindFirstChildOfClass("Humanoid")
+    if not hum then return false end
+    local st = hum:GetState()
+    local airborne = (st==Enum.HumanoidStateType.Jumping or st==Enum.HumanoidStateType.Freefall or st==Enum.HumanoidStateType.FallingDown)
+    local root = ch:FindFirstChild("HumanoidRootPart")
+    local velY = root and math.abs((root.AssemblyLinearVelocity or root.Velocity or Vector3.new()).Y) or 0
+    if (airborne or velY > 8) and isLocking then return true end
+    local origin = Camera.CFrame.Position
+    if Config.AdvancedAim.PacketWallClear then return packetWallClear(origin, part.Position, ch) end
+    local dir = part.Position-origin
+    local p = RaycastParams.new()
+    p.FilterDescendantsInstances = {LocalPlayer.Character, ch}
+    p.FilterType = Enum.RaycastFilterType.Exclude; p.IgnoreWater = true
+    local hit = Workspace:Raycast(origin, dir, p)
+    return hit == nil or hit.Instance:IsDescendantOf(ch)
+end
 
 local function findVisiblePointOnPart(part, origin, mouseScreen, camera, requireVisible)
     if not (part and part:IsA("BasePart") and typeof(origin) == "Vector3") then return nil end
-    local adv = Config['Advanced Aim']
-    if not adv or not adv['Multi Point'] then return part.Position end
+    local adv = Config.AdvancedAim
+    if not adv or not adv.MultiPoint then return part.Position end
     local now = os.clock(); local cache = MultiPointCache
-    if now-cache.sweep > 2 then cache.sweep=now
-        for k,e in pairs(cache.m) do if now-e.t > 0.5 or not k.Parent then cache.m[k]=nil end end end
+    if now-cache.sweep > 2 then
+        cache.sweep=now
+        for k,e in pairs(cache.m) do if now-e.t > 0.5 or not k.Parent then cache.m[k]=nil end end
+    end
     local cached = cache.m[part]
     if cached then
         local failed = cached.pt == false
@@ -251,7 +198,7 @@ local function findVisiblePointOnPart(part, origin, mouseScreen, camera, require
     local cand = partCFrame*clamped
     if rayClear(origin, cand) then cache.m[part]={o=origin,pt=cand,t=now}; return cand end
     if requireVisible then cache.m[part]={o=origin,pt=false,t=now}; return nil end
-    local quality = adv['Multi Point Quality'] or 9
+    local quality = adv.MultiPointQuality or 9
     local axes = {Vector3.new(1,0,0),Vector3.new(0,1,0),Vector3.new(0,0,1)}
     local best, bestScr = nil, math.huge
     for ai=1,3 do
@@ -278,53 +225,6 @@ local function findVisiblePointOnPart(part, origin, mouseScreen, camera, require
     end
     if best then cache.m[part]={o=origin,pt=best,t=now}; return best end
     cache.m[part]={o=origin,pt=false,t=now}; return nil
-end
-
-local function isPlayerKnockedOrKO(player)
-    if not Config['Settings']['Knock Check'] then return false end
-    if not player.Character then return true end
-    local h = player.Character:FindFirstChild("Humanoid")
-    if h and h.Health <= 0 then return true end
-    local be = player.Character:FindFirstChild("BodyEffects")
-    if be then
-        local ko = be:FindFirstChild("K.O"); if ko and ko.Value == true then return true end
-        local kn = be:FindFirstChild("Knocked"); if kn and kn.Value == true then return true end
-    end
-    return false
-end
-
-local function isSelfKnocked()
-    if LocalPlayer.Character then
-        local be = LocalPlayer.Character:FindFirstChild("BodyEffects")
-        if be then
-            local ko = be:FindFirstChild("K.O"); if ko and ko.Value == true then return true end
-            local kn = be:FindFirstChild("Knocked"); if kn and kn.Value == true then return true end
-        end
-    end
-    return false
-end
-
-local function canSeeTarget(part)
-    if isWallbangActive() then return true end
-    if not Config['Settings']['Visible Check'] then return true end
-    if not part or not part.Parent then return false end
-    local ch = part.Parent
-    local hum = ch:FindFirstChildOfClass("Humanoid")
-    if not hum then return false end
-    local st = hum:GetState()
-    local airborne = (st==Enum.HumanoidStateType.Jumping or st==Enum.HumanoidStateType.Freefall or st==Enum.HumanoidStateType.FallingDown)
-    local root = ch:FindFirstChild("HumanoidRootPart")
-    local velY = root and math.abs((root.AssemblyLinearVelocity or root.Velocity or Vector3.new()).Y) or 0
-    if (airborne or velY > 8) and isLocking then return true end
-    local origin = Camera.CFrame.Position
-    local adv = Config['Advanced Aim']
-    if adv and adv['Packet Wall Clear'] then return packetWallClear(origin, part.Position, ch) end
-    local dir = part.Position-origin
-    local p = RaycastParams.new()
-    p.FilterDescendantsInstances = {LocalPlayer.Character, ch}
-    p.FilterType = Enum.RaycastFilterType.Exclude; p.IgnoreWater = true
-    local hit = Workspace:Raycast(origin, dir, p)
-    return hit == nil or hit.Instance:IsDescendantOf(ch)
 end
 
 local function getClosestBodyPart(character)
@@ -356,27 +256,27 @@ local function getClosestBodyPart(character)
 end
 
 local function isTargetInFOV(part)
-    if not Config['Silent Aim FOV']['Enabled'] then return true end
+    if not Config.SilentAimFOV.Enabled then return true end
     if not part or not part.Parent then return false end
     local sp, on = Camera:WorldToViewportPoint(part.Position)
     if not on then return false end
     local sc = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
-    return (Vector2.new(sp.X,sp.Y)-sc).Magnitude <= Config['Silent Aim FOV']['Radius']
+    return (Vector2.new(sp.X,sp.Y)-sc).Magnitude <= Config.SilentAimFOV.Radius
 end
 
 local function findClosestTarget()
     local bestT, bestP, bestD = nil, nil, math.huge
-    local fov = Config['Silent Aim FOV']
+    local fov = Config.SilentAimFOV
     local mp = Vector2.new(Mouse.X, Mouse.Y)
     local sc = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
             if not isPlayerKnockedOrKO(p) then
                 local tp, rp
-                if Config['Silent Aim']['Hit Part'] == 'Closest Part' then
+                if Config.SilentAim.HitPart == 'Closest Part' then
                     rp, tp = getClosestBodyPart(p.Character)
                 else
-                    tp = p.Character:FindFirstChild(Config['Silent Aim']['Hit Part'])
+                    tp = p.Character:FindFirstChild(Config.SilentAim.HitPart)
                     if tp then rp = findVisiblePointOnPart(tp, Camera.CFrame.Position, mp, Camera, false) or tp.Position end
                 end
                 if tp and canSeeTarget(tp) then
@@ -400,7 +300,7 @@ end
 local function findAimAssistTarget()
     local mp = Vector2.new(Mouse.X, Mouse.Y)
     local best, bestD = nil, math.huge
-    local fov = Config['Camera Lock FOV']
+    local fov = Config.CameraLockFOV
     local sc = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
@@ -423,19 +323,18 @@ local function findAimAssistTarget()
 end
 
 local function getPredictedPosition(part, config)
-    if not config['Use Prediction'] then return part.Position end
+    if not config.UsePrediction then return part.Position end
     local vel = part.AssemblyLinearVelocity or part.Velocity or Vector3.new(0,0,0)
-    local pr = config['Prediction']
+    local pr = config.Prediction
     local pred
     if type(pr)=="table" then
-        pred = part.Position + Vector3.new(vel.X*(pr['X'] or 0.133), vel.Y*(pr['Y'] or 0.133), vel.Z*(pr['Z'] or 0.133))
+        pred = part.Position + Vector3.new(vel.X*(pr.X or 0.133), vel.Y*(pr.Y or 0.133), vel.Z*(pr.Z or 0.133))
     else
         if pr==0 then pr=0.1245 end
         pred = part.Position + vel*pr
     end
-    local adv = Config['Advanced Aim']
-    if adv and adv['Gaussian Random'] then
-        local s = adv['Gaussian Spread'] or 0.6
+    if Config.AdvancedAim.GaussianRandom then
+        local s = Config.AdvancedAim.GaussianSpread or 0.6
         pred = pred + Vector3.new(gaussianRandom(0,s),gaussianRandom(0,s),gaussianRandom(0,s))
     end
     return pred
@@ -443,7 +342,7 @@ end
 
 local function applyAimAssist()
     if not aimAssistEnabled then return end
-    if not Config['Camera Lock']['Enabled'] then return end
+    if not Config.CameraLock.Enabled then return end
     if isSelfKnocked() then aimAssistTarget = nil; return end
     if aimAssistTarget then
         local ch = aimAssistTarget.Character
@@ -455,107 +354,126 @@ local function applyAimAssist()
     if not aimAssistTarget then return end
     local part = aimAssistTarget.Character:FindFirstChild("HumanoidRootPart")
     if not part then return end
-    local tp = getPredictedPosition(part, Config['Camera Lock'])
+    local tp = getPredictedPosition(part, Config.CameraLock)
     local camCF = Camera.CFrame
     local tCF = CFrame.new(camCF.Position, tp)
-    local sm = Config['Camera Lock']['Smoothing']
+    local sm = Config.CameraLock.Smoothing
     Camera.CFrame = camCF:Lerp(tCF, math.min(1/sm, 1))
 end
 
-local R6_BONES = { {"Head","Torso"},{"Torso","Left Arm"},{"Torso","Right Arm"},{"Torso","Left Leg"},{"Torso","Right Leg"} }
-local R15_BONES = {
-    {"Head","UpperTorso"},{"UpperTorso","LowerTorso"},
-    {"UpperTorso","LeftUpperArm"},{"LeftUpperArm","LeftLowerArm"},{"LeftLowerArm","LeftHand"},
-    {"UpperTorso","RightUpperArm"},{"RightUpperArm","RightLowerArm"},{"RightLowerArm","RightHand"},
-    {"LowerTorso","LeftUpperLeg"},{"LeftUpperLeg","LeftLowerLeg"},{"LeftLowerLeg","LeftFoot"},
-    {"LowerTorso","RightUpperLeg"},{"RightUpperLeg","RightLowerLeg"},{"RightLowerLeg","RightFoot"},
-}
+-- ══════════════════════════════════════════════════════════════
+-- DRAWING-BASED ESP  (Normal + Dynamic, smoothed)
+-- ══════════════════════════════════════════════════════════════
+local ESP_BOX_LINES = 4
+local ESP_CORNER_LINES = 8
+
+local function newLine()
+    local l = Drawing.new("Line")
+    l.Visible = false
+    l.Thickness = 1
+    l.Color = Color3.fromRGB(255,255,255)
+    l.Transparency = 1
+    return l
+end
+
+local function newText()
+    local t = Drawing.new("Text")
+    t.Visible = false
+    t.Center = true
+    t.Outline = true
+    t.OutlineColor = Color3.fromRGB(0,0,0)
+    t.Color = Color3.fromRGB(255,255,255)
+    t.Size = 13
+    t.Font = 2
+    return t
+end
+
+local function newCircle()
+    local c = Drawing.new("Circle")
+    c.Visible = false
+    c.Thickness = 1
+    c.NumSides = 24
+    c.Filled = false
+    c.Color = Color3.fromRGB(255,255,255)
+    return c
+end
 
 local function addESPToPlayer(player)
     if player == LocalPlayer then return end
-    if espLabels[player.UserId] then return end
+    if espData[player.UserId] then return end
+
     local esp = {
         player = player,
-        nameTag = Drawing.new("Text"), Distance = Drawing.new("Text"),
-        Weapon = Drawing.new("Text"), HealthText = Drawing.new("Text"), Flag = Drawing.new("Text"),
-        HeadDot = Drawing.new("Circle"), HeadDotOutline = Drawing.new("Circle"),
-        BoxLines = {}, BoxLineOutlines = {}, BoxCornerLines = {}, BoxCornerOutlines = {},
+        nameTag  = newText(),
+        Distance = newText(),
+        Weapon   = newText(),
+        Flag     = newText(),
+        HeadDot  = newCircle(),
+        HeadDotOutline = newCircle(),
+        BoxLines     = {},
+        BoxOutlines  = {},
+        CornerLines  = {},
+        CornerOutlines = {},
+        -- dynamic box state
+        dynState = { x = 0, y = 0, w = 0, h = 0, init = false },
+        dynLines = { top = newLine(), bottom = newLine(), left = newLine(), right = newLine() },
     }
-    esp.nameTag.Size=14; esp.nameTag.Center=true; esp.nameTag.Outline=true
-    esp.nameTag.OutlineColor=Color3.fromRGB(0,0,0); esp.nameTag.Color=Config['ESP']['Names']['Color']
-    esp.nameTag.Visible=false; esp.nameTag.ZIndex=1000
-    esp.Distance.Size=12; esp.Distance.Center=true; esp.Distance.Outline=true
-    esp.Distance.OutlineColor=Color3.fromRGB(0,0,0); esp.Distance.Color=Color3.fromRGB(220,220,220); esp.Distance.Visible=false
-    esp.Weapon.Size=12; esp.Weapon.Center=true; esp.Weapon.Outline=true
-    esp.Weapon.OutlineColor=Color3.fromRGB(0,0,0); esp.Weapon.Color=Color3.fromRGB(255,210,90); esp.Weapon.Visible=false
-    esp.HealthText.Size=11; esp.HealthText.Center=true; esp.HealthText.Outline=true
-    esp.HealthText.OutlineColor=Color3.fromRGB(0,0,0); esp.HealthText.Color=Color3.fromRGB(255,255,255); esp.HealthText.Visible=false
-    esp.Flag.Size=11; esp.Flag.Center=false; esp.Flag.Outline=true
-    esp.Flag.OutlineColor=Color3.fromRGB(0,0,0); esp.Flag.Color=Color3.fromRGB(255,90,90); esp.Flag.Visible=false
-    esp.HeadDot.Radius=4; esp.HeadDot.NumSides=20; esp.HeadDot.Filled=true; esp.HeadDot.Color=Color3.fromRGB(255,255,255); esp.HeadDot.Visible=false
-    esp.HeadDotOutline.Radius=6; esp.HeadDotOutline.NumSides=24; esp.HeadDotOutline.Filled=false
-    esp.HeadDotOutline.Thickness=1.5; esp.HeadDotOutline.Color=Color3.fromRGB(0,0,0); esp.HeadDotOutline.Visible=false
 
-    -- Create lines + outlines using Sensory's CreateLine approach
-    for i=1,4 do
-        local line, outline = CreateLine(ESPGui)
-        line.Visible = false
-        outline.Visible = false
-        esp.BoxLines[i] = line
-        esp.BoxLineOutlines[i] = outline
+    esp.nameTag.Size = 13
+    esp.nameTag.Color = Config.ESP.Names.Color
+    esp.Distance.Size = 12
+    esp.Distance.Color = Config.ESP.Distance.Color
+    esp.Weapon.Size = 12
+    esp.Weapon.Color = Config.ESP.Weapon.Color
+    esp.Flag.Size = 11
+    esp.Flag.Color = Color3.fromRGB(255,90,90)
+    esp.Flag.Center = false
+    esp.HeadDot.Radius = 4
+    esp.HeadDot.Filled = true
+    esp.HeadDotOutline.Radius = 6
+    esp.HeadDotOutline.Thickness = 1.5
+
+    for i=1,ESP_BOX_LINES do
+        esp.BoxLines[i] = newLine()
+        esp.BoxOutlines[i] = newLine()
     end
-    for i=1,8 do
-        local line, outline = CreateLine(ESPGui)
-        line.Visible = false
-        outline.Visible = false
-        esp.BoxCornerLines[i] = line
-        esp.BoxCornerOutlines[i] = outline
+    for i=1,ESP_CORNER_LINES do
+        esp.CornerLines[i] = newLine()
+        esp.CornerOutlines[i] = newLine()
     end
 
-    -- BoxFill
-    local fill = Instance.new("Frame")
-    fill.BorderSizePixel=0; fill.ZIndex=1; fill.Visible=false; fill.Parent=ESPGui
-    local fillGrad = Instance.new("UIGradient"); fillGrad.Parent=fill
-    esp.BoxFill=fill; esp.BoxFillGradient=fillGrad
+    if Config.ESP.Chams and Config.ESP.Chams.Enabled then ChamsCache[player] = {} end
+    espData[player.UserId] = esp
 
-    if Config['ESP']['Chams'] and Config['ESP']['Chams']['Enabled'] then ChamsCache[player]={} end
-    espLabels[player.UserId]=esp
-    if Config['Skeleton ESP']['Enabled'] then
+    if Config.SkeletonESP.Enabled then
         local lines, joints = {}, {}
         for i=1,20 do
-            local l=Drawing.new("Line"); l.Visible=false
-            l.Thickness=Config['Skeleton ESP']['Thickness'] or 1
-            l.Color=Config['Skeleton ESP']['Color'] or Color3.new(1,1,1)
-            l.Transparency=1-(Config['Skeleton ESP']['Transparency'] or 0)
-            lines[i]=l
+            local l = newLine(); l.Thickness = Config.SkeletonESP.Thickness
+            l.Color = Config.SkeletonESP.Color
+            l.Transparency = 1-(Config.SkeletonESP.Transparency or 0)
+            lines[i] = l
         end
         for i=1,20 do
-            local j=Drawing.new("Circle"); j.Visible=false
-            j.Radius=2; j.NumSides=12; j.Filled=true
-            j.Color=Config['Skeleton ESP']['Color'] or Color3.new(1,1,1)
-            joints[i]=j
+            local j = newCircle(); j.Radius = 2; j.Filled = true
+            j.Color = Config.SkeletonESP.Color
+            joints[i] = j
         end
-        skeletonCache[player]={lines=lines, joints=joints}
+        skeletonCache[player] = {lines=lines, joints=joints}
     end
 end
 
 local function removeESPFromPlayer(player)
-    local esp = espLabels[player.UserId]
+    local esp = espData[player.UserId]
     if esp then
-        pcall(function() esp.nameTag:Remove() end); pcall(function() esp.Distance:Remove() end)
-        pcall(function() esp.Weapon:Remove() end); pcall(function() esp.HealthText:Remove() end)
-        pcall(function() esp.Flag:Remove() end); pcall(function() esp.HeadDot:Remove() end)
-        pcall(function() esp.HeadDotOutline:Remove() end)
-        for i=1,4 do
-            if esp.BoxLines[i] then esp.BoxLines[i]:Destroy() end
-            if esp.BoxLineOutlines[i] then esp.BoxLineOutlines[i]:Destroy() end
+        for _,d in pairs({esp.nameTag, esp.Distance, esp.Weapon, esp.Flag, esp.HeadDot, esp.HeadDotOutline}) do
+            pcall(function() d:Remove() end)
         end
-        for i=1,8 do
-            if esp.BoxCornerLines[i] then esp.BoxCornerLines[i]:Destroy() end
-            if esp.BoxCornerOutlines[i] then esp.BoxCornerOutlines[i]:Destroy() end
-        end
-        if esp.BoxFill then esp.BoxFill:Destroy() end
-        espLabels[player.UserId]=nil
+        for _,l in pairs(esp.BoxLines) do pcall(function() l:Remove() end) end
+        for _,l in pairs(esp.BoxOutlines) do pcall(function() l:Remove() end) end
+        for _,l in pairs(esp.CornerLines) do pcall(function() l:Remove() end) end
+        for _,l in pairs(esp.CornerOutlines) do pcall(function() l:Remove() end) end
+        for _,l in pairs(esp.dynLines) do pcall(function() l:Remove() end) end
+        espData[player.UserId] = nil
     end
     if skeletonCache[player] then
         for _,l in pairs(skeletonCache[player].lines) do pcall(function() l:Remove() end) end
@@ -563,7 +481,7 @@ local function removeESPFromPlayer(player)
         skeletonCache[player]=nil
     end
     if arrowDrawings[player] then
-        if arrowDrawings[player].Remove then pcall(function() arrowDrawings[player]:Remove() end) end
+        pcall(function() arrowDrawings[player]:Remove() end)
         arrowDrawings[player]=nil
     end
     if ChamsCache[player] then
@@ -572,502 +490,340 @@ local function removeESPFromPlayer(player)
     end
 end
 
-local function updateChams(player, character)
-    if not (Config['ESP']['Chams'] and Config['ESP']['Chams']['Enabled']) then
-        if ChamsCache[player] then
-            for _,h in pairs(ChamsCache[player]) do pcall(function() h:Destroy() end) end
-            ChamsCache[player]=nil
-        end
-        return
+local function hideESP(esp)
+    esp.nameTag.Visible = false
+    esp.Distance.Visible = false
+    esp.Weapon.Visible = false
+    esp.Flag.Visible = false
+    esp.HeadDot.Visible = false
+    esp.HeadDotOutline.Visible = false
+    for i=1,ESP_BOX_LINES do
+        esp.BoxLines[i].Visible = false
+        esp.BoxOutlines[i].Visible = false
     end
-    if not ChamsCache[player] then ChamsCache[player]={} end
-    local col = Config['ESP']['Chams']['Color'] or Color3.fromRGB(255,60,60)
-    local trans = Config['ESP']['Chams']['Transparency'] or 0.5
-    for _, part in ipairs(character:GetChildren()) do
-        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-            local h = ChamsCache[player][part]
-            if not h then
-                h = Instance.new("Highlight")
-                h.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
-                h.FillTransparency=1; h.OutlineTransparency=trans
-                h.Adornee=part; h.Parent=part
-                ChamsCache[player][part]=h
-            end
-            h.OutlineColor=col; h.FillColor=col; h.OutlineTransparency=trans
+    for i=1,ESP_CORNER_LINES do
+        esp.CornerLines[i].Visible = false
+        esp.CornerOutlines[i].Visible = false
+    end
+    for _,l in pairs(esp.dynLines) do l.Visible = false end
+end
+
+local function getCharacterBounds(char)
+    -- Returns minY (feet), maxY (top of head), and average center X/Z in world
+    local minY, maxY = math.huge, -math.huge
+    local centerX, centerZ, count = 0, 0, 0
+    for _, part in ipairs(char:GetChildren()) do
+        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part.Transparency < 1 then
+            local y = part.Position.Y
+            if y < minY then minY = y end
+            if y > maxY then maxY = y end
+            centerX = centerX + part.Position.X
+            centerZ = centerZ + part.Position.Z
+            count = count + 1
         end
     end
+    if count == 0 then return nil end
+    return minY, maxY, centerX/count, centerZ/count
 end
 
 local function refreshESP()
-    if not Config['ESP']['Enabled'] then
-        for _, esp in pairs(espLabels) do
-            esp.nameTag.Visible=false; esp.Distance.Visible=false; esp.Weapon.Visible=false
-            esp.HealthText.Visible=false; esp.Flag.Visible=false
-            esp.HeadDot.Visible=false; esp.HeadDotOutline.Visible=false
-            for i=1,4 do
-                if esp.BoxLines[i] then esp.BoxLines[i].Visible=false end
-                if esp.BoxLineOutlines[i] then esp.BoxLineOutlines[i].Visible=false end
-            end
-            for i=1,8 do
-                if esp.BoxCornerLines[i] then esp.BoxCornerLines[i].Visible=false end
-                if esp.BoxCornerOutlines[i] then esp.BoxCornerOutlines[i].Visible=false end
-            end
-            if esp.BoxFill then esp.BoxFill.Visible=false end
-        end
+    if not Config.ESP.Enabled then
+        for _, esp in pairs(espData) do hideESP(esp) end
         return
     end
 
-    for userId, esp in pairs(espLabels) do
+    for userId, esp in pairs(espData) do
         local player = esp.player
         local char = player and player.Character
 
-        local function hideAll()
-            esp.nameTag.Visible=false; esp.Distance.Visible=false; esp.Weapon.Visible=false
-            esp.HealthText.Visible=false; esp.Flag.Visible=false
-            esp.HeadDot.Visible=false; esp.HeadDotOutline.Visible=false
-            for i=1,4 do
-                if esp.BoxLines[i] then esp.BoxLines[i].Visible=false end
-                if esp.BoxLineOutlines[i] then esp.BoxLineOutlines[i].Visible=false end
-            end
-            for i=1,8 do
-                if esp.BoxCornerLines[i] then esp.BoxCornerLines[i].Visible=false end
-                if esp.BoxCornerOutlines[i] then esp.BoxCornerOutlines[i].Visible=false end
-            end
-            if esp.BoxFill then esp.BoxFill.Visible=false end
-        end
-
         if not player or not player.Parent or not char
             or not char:FindFirstChild("HumanoidRootPart") or not char:FindFirstChild("Head") then
-            hideAll()
+            hideESP(esp)
             if skeletonCache[player] then
                 for _,l in pairs(skeletonCache[player].lines) do l.Visible=false end
                 for _,j in pairs(skeletonCache[player].joints) do j.Visible=false end
             end
             if arrowDrawings[player] then arrowDrawings[player].Visible=false end
-            continue
+            goto continue
         end
 
         local hum = char:FindFirstChildOfClass("Humanoid")
         if not hum or hum.Health <= 0 then
-            hideAll()
+            hideESP(esp)
             if skeletonCache[player] then
                 for _,l in pairs(skeletonCache[player].lines) do l.Visible=false end
                 for _,j in pairs(skeletonCache[player].joints) do j.Visible=false end
             end
             if arrowDrawings[player] then arrowDrawings[player].Visible=false end
-            continue
+            goto continue
         end
 
-        updateChams(player, char)
+        -- Chams
+        if Config.ESP.Chams.Enabled then
+            if not ChamsCache[player] then ChamsCache[player] = {} end
+            local col = Config.ESP.Chams.Color
+            local trans = Config.ESP.Chams.Transparency
+            for _, part in ipairs(char:GetChildren()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    local h = ChamsCache[player][part]
+                    if not h then
+                        h = Instance.new("Highlight")
+                        h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                        h.FillTransparency = 1
+                        h.OutlineTransparency = trans
+                        h.Adornee = part
+                        h.Parent = part
+                        ChamsCache[player][part] = h
+                    end
+                    h.OutlineColor = col; h.FillColor = col; h.OutlineTransparency = trans
+                end
+            end
+        elseif ChamsCache[player] then
+            for _,h in pairs(ChamsCache[player]) do pcall(function() h:Destroy() end) end
+            ChamsCache[player] = nil
+        end
 
         local rootPart = char.HumanoidRootPart
         local head = char.Head
 
-        local lowestY, lowestPart = math.huge, nil
-        for _, part in ipairs(char:GetChildren()) do
-            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part.Transparency < 1 then
-                if part.Position.Y < lowestY then lowestY=part.Position.Y; lowestPart=part end
-            end
-        end
+        local headPos, headOn = Camera:WorldToViewportPoint(head.Position)
+        local minY, maxY, cx, cz = getCharacterBounds(char)
+        if not minY then goto continue end
 
-        local legPos, onScreen
-        if lowestPart then legPos, onScreen = Camera:WorldToViewportPoint(lowestPart.Position)
-        else legPos, onScreen = Camera:WorldToViewportPoint(rootPart.Position - Vector3.new(0,1.5,0)) end
-        local headPos = Camera:WorldToViewportPoint(head.Position)
+        local feetWorld = Vector3.new(cx, minY, cz)
+        local topWorld  = Vector3.new(cx, maxY + 0.15, cz)
+        local feetPos, feetOn = Camera:WorldToViewportPoint(feetWorld)
+        local topPos, topOn   = Camera:WorldToViewportPoint(topWorld)
 
-        if not onScreen or legPos.Z <= 0 then
-            hideAll()
+        if not feetOn or not topOn or not headOn or feetPos.Z <= 0 or topPos.Z <= 0 then
+            hideESP(esp)
             if skeletonCache[player] then
                 for _,l in pairs(skeletonCache[player].lines) do l.Visible=false end
                 for _,j in pairs(skeletonCache[player].joints) do j.Visible=false end
             end
-            local arrowCfg = Config['Off-Screen Arrows']
-            if arrowCfg and arrowCfg['Enabled'] then
-                if not arrowDrawings[player] then
-                    local o = Drawing.new("Triangle"); o.Filled = arrowCfg['Filled'] ~= false
-                    arrowDrawings[player]=o
-                end
-                local arrow = arrowDrawings[player]
-                local camPos = Camera.CFrame.Position
-                local objSpace = Camera.CFrame:PointToObjectSpace(rootPart.Position)
-                local angle = math.atan2(-objSpace.Y, objSpace.X)
-                local dirV = Vector2.new(math.cos(angle), math.sin(angle))
-                local distFromCam = math.min((rootPart.Position-camPos).Magnitude, 150)
-                local vw, vh = Camera.ViewportSize.X, Camera.ViewportSize.Y
-                local rf = arrowCfg['Dynamic Distance'] ~= false
-                    and math.clamp(10+math.max(0,distFromCam)/150*85,10,95)/400
-                    or (tonumber(arrowCfg['Distance']) or 40)/400
-                local as = arrowCfg['Dynamic Size'] ~= false
-                    and 40-math.clamp(10+math.max(0,distFromCam)/150*20,10,30)
-                    or (tonumber(arrowCfg['Size']) or 13)
-                local ctr = dirV*(vw*rf) + Vector2.new(vw*0.5, vh*0.5)
-                local col = arrowCfg['Color'] or Color3.new(1,1,1)
-                local alpha = 1
-                if arrowCfg['Blink'] then
-                    alpha = 1-(math.sin(os.clock()*(4+(arrowCfg['Blink Speed'] or 1)))+1)*0.5
-                end
-                local perp = Vector2.new(-dirV.Y, dirV.X)
-                arrow.PointA = ctr + dirV*(as*0.7)
-                arrow.PointB = ctr - dirV*(as*0.3) + perp*(as*0.55)
-                arrow.PointC = ctr - dirV*(as*0.3) - perp*(as*0.55)
-                arrow.Color=col; arrow.Transparency=alpha; arrow.Visible=true
-            end
-            continue
+            if arrowDrawings[player] then arrowDrawings[player].Visible=false end
+            goto continue
         end
 
         if arrowDrawings[player] then arrowDrawings[player].Visible=false end
 
-        -- ══════════════════════════════════════════════════
-        -- SENSORY-STYLE BOX
-        -- ══════════════════════════════════════════════════
-        local topY = math.min(headPos.Y, legPos.Y)
-        local bottomY = math.max(headPos.Y, legPos.Y)
-        local boxHeight = bottomY - topY
-        local boxWidth = boxHeight / 2
-        local bx = legPos.X - boxWidth
+        -- ── Box geometry ──
+        local boxCfg = Config.ESP.Boxes
+        local topY = math.min(topPos.Y, feetPos.Y)
+        local botY = math.max(topPos.Y, feetPos.Y)
+        local boxH = botY - topY
+        local boxW = boxH / 2
+        local cxScreen = (feetPos.X + topPos.X) / 2
+        local bx = cxScreen - boxW / 2
         local by = topY
-        local boxW = boxWidth * 2
-        local boxH = boxHeight
 
-        local boxCfg = Config['ESP']['Boxes']
-        local boxesEnabled = boxCfg['Enabled']
-        local boxType = boxCfg['BoxType'] or 'Normal'
-        local useCorner = (boxType == 'Corner')
+        local boxColor = boxCfg.Color
+        local t = boxCfg.Thickness
+        local hasOutline = boxCfg.Outlines and boxCfg.Outlines.Style ~= "None"
+        local oColor = boxCfg.Outlines and boxCfg.Outlines.Color or Color3.fromRGB(0,0,0)
+        local oThickness = boxCfg.Outlines and boxCfg.Outlines.Thickness or 1
 
-        local t = boxCfg['Thickness'] or 1
-        local boxColor = boxCfg['Color'] or Color3.fromRGB(255,255,255)
+        local boxType = boxCfg.BoxType or "Normal"
 
-        local outlineStyle = (boxCfg['Outlines'] and boxCfg['Outlines']['Style']) or 'Full'
-        local hasOutline = (outlineStyle ~= 'None')
-        local outlineColor = (boxCfg['Outlines'] and boxCfg['Outlines']['Color']) or Color3.fromRGB(0,0,0)
-        local o = (boxCfg['Outlines'] and boxCfg['Outlines']['Thickness']) or 1
-
-        -- Sensory-style floor math
-        local px = math.floor(legPos.X + boxWidth)
-        local py = math.floor(by)
-        local sx = math.floor(boxW)
-        local sy = math.floor(boxH)
-        local x = math.floor(px - sx/2)
-        local y = py
-
-        if boxesEnabled then
-            if not useCorner then
-                -- 4-line box (Sensory exact)
-                esp.BoxLines[1].Position = UDim2.new(0, x, 0, y)
-                esp.BoxLines[1].Size = UDim2.new(0, sx, 0, t)
-                esp.BoxLines[2].Position = UDim2.new(0, x, 0, y + sy)
-                esp.BoxLines[2].Size = UDim2.new(0, sx + t, 0, t)
-                esp.BoxLines[3].Position = UDim2.new(0, x, 0, y)
-                esp.BoxLines[3].Size = UDim2.new(0, t, 0, sy)
-                esp.BoxLines[4].Position = UDim2.new(0, x + sx, 0, y)
-                esp.BoxLines[4].Size = UDim2.new(0, t, 0, sy + t)
-
-                for i = 1, 4 do
-                    esp.BoxLines[i].Visible = true
-                    esp.BoxLines[i].BackgroundColor3 = boxColor
-                    local ol = esp.BoxLineOutlines[i]
-                    ol.Visible = hasOutline
-                    ol.BackgroundColor3 = outlineColor
-                    ol.Position = UDim2.new(0, -o, 0, -o)
-                    ol.Size = UDim2.new(1, o * 2, 1, o * 2)
-                end
-                for i = 1, 8 do
-                    esp.BoxCornerLines[i].Visible = false
-                    esp.BoxCornerOutlines[i].Visible = false
-                end
-            else
-                -- Corner box (Sensory exact)
-                local cornerWidth = math.max(math.floor(sx * 0.25), t * 3)
-                local cornerHeight = math.max(math.floor(sy * 0.25), t * 3)
-
-                local cornerData = {
-                    { x,                        y,                         cornerWidth, t },
-                    { x,                        y,                         t,           cornerHeight },
-                    { x + sx - cornerWidth + t, y,                         cornerWidth, t },
-                    { x + sx,                   y,                         t,           cornerHeight },
-                    { x,                        y + sy,                    cornerWidth, t },
-                    { x,                        y + sy - cornerHeight + t, t,           cornerHeight },
-                    { x + sx - cornerWidth + t, y + sy,                    cornerWidth, t },
-                    { x + sx,                   y + sy - cornerHeight + t, t,           cornerHeight },
-                }
-
-                for i = 1, 8 do
-                    local d = cornerData[i]
-                    esp.BoxCornerLines[i].Position = UDim2.new(0, d[1], 0, d[2])
-                    esp.BoxCornerLines[i].Size = UDim2.new(0, d[3], 0, d[4])
-                    esp.BoxCornerLines[i].Visible = true
-                    esp.BoxCornerLines[i].BackgroundColor3 = boxColor
-                    local ol = esp.BoxCornerOutlines[i]
-                    ol.Visible = hasOutline
-                    ol.BackgroundColor3 = outlineColor
-                    ol.Position = UDim2.new(0, -o, 0, -o)
-                    ol.Size = UDim2.new(1, o * 2, 1, o * 2)
-                end
-                for i = 1, 4 do
-                    esp.BoxLines[i].Visible = false
-                    esp.BoxLineOutlines[i].Visible = false
-                end
-            end
-
-            -- BoxFill
-            local fillCfg = boxCfg['Fill']
-            if fillCfg and fillCfg['Enabled'] then
-                esp.BoxFill.Visible = true
-                esp.BoxFill.Position = UDim2.new(0, x, 0, y)
-                esp.BoxFill.Size = UDim2.new(0, sx, 0, sy)
-                esp.BoxFill.BackgroundTransparency = fillCfg['Transparency'] or 0.85
-                local gradCfg = fillCfg['Gradient']
-                if gradCfg and gradCfg['Enabled'] then
-                    esp.BoxFillGradient.Enabled = true
-                    esp.BoxFillGradient.Color = ColorSequence.new({
-                        ColorSequenceKeypoint.new(0,   gradCfg['Color1']),
-                        ColorSequenceKeypoint.new(0.5, gradCfg['Color2']),
-                        ColorSequenceKeypoint.new(1,   gradCfg['Color3']),
-                    })
-                    local rot = gradCfg['Rotation'] or 0
-                    if gradCfg['Animated'] then
-                        local speed = gradCfg['Speed'] or 60
-                        local dir = (gradCfg['Direction'] == 'Left') and -1 or 1
-                        rot = (rot + (os.clock() * speed * dir)) % 360
-                    end
-                    esp.BoxFillGradient.Rotation = rot
-                    esp.BoxFill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-                else
-                    esp.BoxFillGradient.Enabled = false
-                    esp.BoxFill.BackgroundColor3 = fillCfg['Color'] or boxColor
-                end
-            else
-                esp.BoxFill.Visible = false
-            end
+        -- Hide the other mode
+        if boxType == "Dynamic" then
+            for i=1,ESP_BOX_LINES do esp.BoxLines[i].Visible=false; esp.BoxOutlines[i].Visible=false end
+            for i=1,ESP_CORNER_LINES do esp.CornerLines[i].Visible=false; esp.CornerOutlines[i].Visible=false end
         else
-            for i=1,4 do esp.BoxLines[i].Visible=false; esp.BoxLineOutlines[i].Visible=false end
-            for i=1,8 do esp.BoxCornerLines[i].Visible=false; esp.BoxCornerOutlines[i].Visible=false end
-            esp.BoxFill.Visible=false
+            for _,l in pairs(esp.dynLines) do l.Visible=false end
         end
 
-        if Config['ESP']['HeadDot'] ~= false then
-            esp.HeadDot.Position=Vector2.new(headPos.X, headPos.Y)
-            esp.HeadDot.Radius=math.max(2, boxHeight*0.05)
-            esp.HeadDot.Color=boxColor
-            esp.HeadDot.Visible=true
-            esp.HeadDotOutline.Position=Vector2.new(headPos.X, headPos.Y)
-            esp.HeadDotOutline.Radius=esp.HeadDot.Radius+2
-            esp.HeadDotOutline.Visible=true
-        else esp.HeadDot.Visible=false; esp.HeadDotOutline.Visible=false end
+        if boxType == "Normal" then
+            -- 4-line rectangle, top/bottom/left/right, with optional outline
+            local x1, y1 = bx, by
+            local x2, y2 = bx + boxW, by + boxH
 
-        local hbCfg = Config['Health Bar']
-        if hbCfg and hbCfg['Enabled'] then
-            local hV, mH = GetStableHealthBarValues(player, hum)
-            if hbCfg['ShowNumber'] ~= false then
-                esp.HealthText.Text=tostring(math.ceil(hV))
-                esp.HealthText.Position=Vector2.new(bx-10, by+boxH*0.5)
-                esp.HealthText.Color = hV/mH > 0.5 and Color3.fromRGB(90,255,90)
-                    or hV/mH > 0.25 and Color3.fromRGB(255,200,80) or Color3.fromRGB(255,80,80)
-                esp.HealthText.Visible=true
-            else esp.HealthText.Visible=false end
-        else esp.HealthText.Visible=false end
+            local function setLine(l, x1_, y1_, x2_, y2_, col, thick, vis)
+                l.From = Vector2.new(x1_, y1_)
+                l.To   = Vector2.new(x2_, y2_)
+                l.Color = col
+                l.Thickness = thick
+                l.Transparency = 1
+                l.Visible = vis
+            end
 
-        if Config['ESP']['Names']['Enabled'] then
-            esp.nameTag.Position=Vector2.new(legPos.X, by-15)
-            esp.nameTag.Text=player.DisplayName or player.Name
-            esp.nameTag.Color=(currentTarget and currentTarget.Parent==player.Character)
-                and Config['ESP']['Names']['TargetColor'] or Config['ESP']['Names']['Color']
-            esp.nameTag.Size=Config['ESP']['Names']['Text Size'] or 13
-            esp.nameTag.Visible=true
-        else esp.nameTag.Visible=false end
+            if hasOutline then
+                setLine(esp.BoxOutlines[1], x1-oThickness, y1-oThickness, x2+oThickness, y1-oThickness, oColor, t+oThickness*2, true)
+                setLine(esp.BoxOutlines[2], x1-oThickness, y2+oThickness, x2+oThickness, y2+oThickness, oColor, t+oThickness*2, true)
+                setLine(esp.BoxOutlines[3], x1-oThickness, y1-oThickness, x1-oThickness, y2+oThickness, oColor, t+oThickness*2, true)
+                setLine(esp.BoxOutlines[4], x2+oThickness, y1-oThickness, x2+oThickness, y2+oThickness, oColor, t+oThickness*2, true)
+            else
+                for i=1,4 do esp.BoxOutlines[i].Visible=false end
+            end
 
-        if Config['ESP']['Weapon'] and Config['ESP']['Weapon']['Enabled'] then
+            setLine(esp.BoxLines[1], x1, y1, x2, y1, boxColor, t, true)
+            setLine(esp.BoxLines[2], x1, y2, x2, y2, boxColor, t, true)
+            setLine(esp.BoxLines[3], x1, y1, x1, y2, boxColor, t, true)
+            setLine(esp.BoxLines[4], x2, y1, x2, y2, boxColor, t, true)
+
+        elseif boxType == "Dynamic" then
+            -- Smoothed dynamic bounding box that hugs the silhouette
+            local targetX, targetY, targetW, targetH = bx, by, boxW, boxH
+            local s = esp.dynState
+            if not s.init then
+                s.x = targetX; s.y = targetY; s.w = targetW; s.h = targetH; s.init = true
+            else
+                local lerp = boxCfg.Smoothing or 0.15
+                s.x = s.x + (targetX - s.x) * lerp
+                s.y = s.y + (targetY - s.y) * lerp
+                s.w = s.w + (targetW - s.w) * lerp
+                s.h = s.h + (targetH - s.h) * lerp
+            end
+            local x1, y1 = s.x, s.y
+            local x2, y2 = s.x + s.w, s.y + s.h
+
+            local function setDyn(l, x1_, y1_, x2_, y2_, col, thick)
+                l.From = Vector2.new(x1_, y1_)
+                l.To   = Vector2.new(x2_, y2_)
+                l.Color = col
+                l.Thickness = thick
+                l.Transparency = 1
+                l.Visible = true
+            end
+
+            -- Outline pass
+            if hasOutline then
+                setDyn(esp.dynLines.top,    x1-oThickness, y1-oThickness, x2+oThickness, y1-oThickness, oColor, t+oThickness*2)
+                setDyn(esp.dynLines.bottom, x1-oThickness, y2+oThickness, x2+oThickness, y2+oThickness, oColor, t+oThickness*2)
+                setDyn(esp.dynLines.left,   x1-oThickness, y1-oThickness, x1-oThickness, y2+oThickness, oColor, t+oThickness*2)
+                setDyn(esp.dynLines.right,  x2+oThickness, y1-oThickness, x2+oThickness, y2+oThickness, oColor, t+oThickness*2)
+            end
+
+            -- Main box on top
+            local dcol = boxColor
+            esp.dynLines.top.From    = Vector2.new(x1, y1)
+            esp.dynLines.top.To      = Vector2.new(x2, y1)
+            esp.dynLines.top.Color   = dcol
+            esp.dynLines.top.Thickness = t
+            esp.dynLines.top.Visible = true
+
+            esp.dynLines.bottom.From = Vector2.new(x1, y2)
+            esp.dynLines.bottom.To   = Vector2.new(x2, y2)
+            esp.dynLines.bottom.Color = dcol
+            esp.dynLines.bottom.Thickness = t
+            esp.dynLines.bottom.Visible = true
+
+            esp.dynLines.left.From   = Vector2.new(x1, y1)
+            esp.dynLines.left.To     = Vector2.new(x1, y2)
+            esp.dynLines.left.Color  = dcol
+            esp.dynLines.left.Thickness = t
+            esp.dynLines.left.Visible = true
+
+            esp.dynLines.right.From  = Vector2.new(x2, y1)
+            esp.dynLines.right.To    = Vector2.new(x2, y2)
+            esp.dynLines.right.Color = dcol
+            esp.dynLines.right.Thickness = t
+            esp.dynLines.right.Visible = true
+        end
+
+        -- Head dot
+        if Config.ESP.HeadDot then
+            esp.HeadDot.Position = Vector2.new(headPos.X, headPos.Y)
+            esp.HeadDot.Radius = math.max(2, boxH*0.05)
+            esp.HeadDot.Color = boxColor
+            esp.HeadDot.Visible = true
+            esp.HeadDotOutline.Position = Vector2.new(headPos.X, headPos.Y)
+            esp.HeadDotOutline.Radius = esp.HeadDot.Radius + 2
+            esp.HeadDotOutline.Visible = true
+        else
+            esp.HeadDot.Visible = false
+            esp.HeadDotOutline.Visible = false
+        end
+
+        -- Names
+        if Config.ESP.Names.Enabled then
+            esp.nameTag.Position = Vector2.new(cxScreen, by - 15)
+            esp.nameTag.Text = player.DisplayName ~= "" and player.DisplayName or player.Name
+            esp.nameTag.Color = (currentTarget and currentTarget.Parent == char)
+                and Config.ESP.Names.TargetColor or Config.ESP.Names.Color
+            esp.nameTag.Size = Config.ESP.Names.TextSize or 13
+            esp.nameTag.Visible = true
+        else
+            esp.nameTag.Visible = false
+        end
+
+        -- Weapon
+        if Config.ESP.Weapon.Enabled then
             local tool = char:FindFirstChildOfClass("Tool")
             if tool then
-                esp.Weapon.Text="["..tool.Name.."]"
-                esp.Weapon.Position=Vector2.new(legPos.X, legPos.Y+18)
-                esp.Weapon.Color=Config['ESP']['Weapon']['Color'] or Color3.fromRGB(255,210,90)
-                esp.Weapon.Visible=true
-            else esp.Weapon.Visible=false end
-        else esp.Weapon.Visible=false end
+                esp.Weapon.Text = "["..tool.Name.."]"
+                esp.Weapon.Position = Vector2.new(cxScreen, by + boxH + 6)
+                esp.Weapon.Color = Config.ESP.Weapon.Color
+                esp.Weapon.Visible = true
+            else
+                esp.Weapon.Visible = false
+            end
+        else
+            esp.Weapon.Visible = false
+        end
 
-        if Config['ESP']['Distance']['Enabled'] then
-            local dist = math.floor((Camera.CFrame.Position-rootPart.Position).Magnitude)
-            esp.Distance.Text=dist.."m"
-            esp.Distance.Position=Vector2.new(legPos.X, legPos.Y+5)
-            esp.Distance.Color=Config['ESP']['Distance']['Color'] or Color3.fromRGB(220,220,220)
-            esp.Distance.Visible=true
-        else esp.Distance.Visible=false end
+        -- Distance
+        if Config.ESP.Distance.Enabled then
+            local dist = math.floor((Camera.CFrame.Position - rootPart.Position).Magnitude)
+            esp.Distance.Text = dist.."m"
+            esp.Distance.Position = Vector2.new(cxScreen, by + boxH + 20)
+            esp.Distance.Color = Config.ESP.Distance.Color
+            esp.Distance.Visible = true
+        else
+            esp.Distance.Visible = false
+        end
 
-        if Config['ESP']['Flags'] and Config['ESP']['Flags']['Enabled'] then
+        -- Flags
+        if Config.ESP.Flags.Enabled then
             local flags = {}
             local be = char:FindFirstChild("BodyEffects")
             if be then local ko = be:FindFirstChild("K.O"); if ko and ko.Value then table.insert(flags,"KO") end end
             if hum.FloorMaterial == Enum.Material.Air then table.insert(flags,"AIR") end
-            local tool = char:FindFirstChildOfClass("Tool")
-            if tool then
-                local reloading = tool:FindFirstChild("Reloading") or tool:FindFirstChild("IsReloading")
-                if reloading and reloading.Value then table.insert(flags,"RLD") end
-            end
             if #flags > 0 then
-                esp.Flag.Text=table.concat(flags," ")
-                esp.Flag.Position=Vector2.new(bx+boxW+5, by)
-                esp.Flag.Visible=true
-            else esp.Flag.Visible=false end
-        else esp.Flag.Visible=false end
-
-        local skelCfg = Config['Skeleton ESP']
-        if skelCfg and skelCfg['Enabled'] then
-            if not skeletonCache[player] then
-                local lines, joints = {}, {}
-                for i=1,20 do
-                    local l=Drawing.new("Line"); l.Visible=false
-                    l.Thickness=skelCfg['Thickness'] or 1
-                    l.Color=skelCfg['Color'] or Color3.new(1,1,1)
-                    l.Transparency=1-(skelCfg['Transparency'] or 0)
-                    lines[i]=l
-                end
-                for i=1,20 do
-                    local j=Drawing.new("Circle"); j.Visible=false
-                    j.Radius=2; j.NumSides=12; j.Filled=true
-                    j.Color=skelCfg['Color'] or Color3.new(1,1,1)
-                    joints[i]=j
-                end
-                skeletonCache[player]={lines=lines, joints=joints}
+                esp.Flag.Text = table.concat(flags, " ")
+                esp.Flag.Position = Vector2.new(bx + boxW + 5, by)
+                esp.Flag.Visible = true
+            else
+                esp.Flag.Visible = false
             end
-            local bones = char:FindFirstChild("UpperTorso") and R15_BONES or R6_BONES
-            local cache = skeletonCache[player]
-            local col2 = skelCfg['Color'] or Color3.new(1,1,1)
-            local alpha = 1-(skelCfg['Transparency'] or 0)
-            for i, bone in ipairs(bones) do
-                if i > #cache.lines then break end
-                local p1 = char:FindFirstChild(bone[1])
-                local p2 = char:FindFirstChild(bone[2])
-                local line = cache.lines[i]
-                if p1 and p2 then
-                    local s1, on1 = Camera:WorldToViewportPoint(p1.Position)
-                    local s2, on2 = Camera:WorldToViewportPoint(p2.Position)
-                    if on1 and on2 and s1.Z>0 and s2.Z>0 then
-                        line.From=Vector2.new(s1.X,s1.Y); line.To=Vector2.new(s2.X,s2.Y)
-                        line.Color=col2; line.Transparency=alpha; line.Visible=true
-                    else line.Visible=false end
-                else line.Visible=false end
-            end
-            for i=#bones+1, #cache.lines do cache.lines[i].Visible=false end
-            local jointIdx = 0; local seen = {}
-            for _, bone in ipairs(bones) do
-                for _, name in ipairs(bone) do
-                    if not seen[name] then
-                        seen[name] = true
-                        local p = char:FindFirstChild(name)
-                        jointIdx = jointIdx + 1
-                        if jointIdx > #cache.joints then break end
-                        local dot = cache.joints[jointIdx]
-                        if p then
-                            local s, on = Camera:WorldToViewportPoint(p.Position)
-                            if on and s.Z > 0 then
-                                dot.Position=Vector2.new(s.X,s.Y)
-                                dot.Radius=math.max(1.5, skelCfg['JointSize'] or 2)
-                                dot.Color=col2; dot.Transparency=alpha; dot.Filled=true; dot.Visible=true
-                            else dot.Visible=false end
-                        else dot.Visible=false end
-                    end
-                end
-            end
-            for i=jointIdx+1, #cache.joints do cache.joints[i].Visible=false end
         else
-            if skeletonCache[player] then
-                for _,l in pairs(skeletonCache[player].lines) do l.Visible=false end
-                for _,j in pairs(skeletonCache[player].joints) do j.Visible=false end
-            end
+            esp.Flag.Visible = false
         end
-    end
 
-    -- Target health bar
-    local HBCfg = Config['Health Bar']
-    if HBCfg and HBCfg['Enabled'] then
-        local ShowArmor = HBCfg['Show Armor']
-        local HealthColor = HBCfg['Health Color'] or Color3.fromRGB(85,255,255)
-        local ArmorColor = HBCfg['Armor Color'] or Color3.fromRGB(120,185,255)
-        local TargetPlayer = currentTarget and Players:GetPlayerFromCharacter(currentTarget.Parent)
-        for player, set in pairs(HealthBarDrawings) do
-            if player ~= TargetPlayer then HideHealthBarSet(set) end
-        end
-        if TargetPlayer then
-            local ch = TargetPlayer.Character
-            local rp = ch and ch:FindFirstChild('HumanoidRootPart')
-            local hum = ch and ch:FindFirstChildOfClass('Humanoid')
-            if rp and hum then
-                local lowP, lowY = nil, math.huge
-                for _, part in ipairs(ch:GetChildren()) do
-                    if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part.Transparency < 1 then
-                        if part.Position.Y < lowY then lowY=part.Position.Y; lowP=part end
-                    end
-                end
-                local bp = lowP and lowP.Position or (rp.Position - Vector3.new(0,1.5,0))
-                local bs, bo = Camera:WorldToViewportPoint(bp)
-                if bo and bs.Y >= 0 and bs.Y <= Camera.ViewportSize.Y then
-                    local cx = bs.X; local fy = bs.Y
-                    local barLen = 66; local tH = 2; local b = 1; local g = 1
-                    local tW = barLen + b*2
-                    local tX = MathFloor(cx - tW/2 + 0.5)
-                    local tY = MathFloor(fy + 1 + 0.5)
-                    local hBY, hFY = tY, tY+b
-                    local aBY, aFY = hBY+tH+b*2+g, hBY+tH+b*2+g+b
-                    if not HealthBarDrawings[TargetPlayer] then
-                        local set = {}
-                        for _, key in ipairs({'HealthBack','HealthFill','ArmorBack','ArmorFill'}) do
-                            local sq = CreateSquare(); sq.Filled=true; sq.Visible=false; set[key]=sq
-                        end
-                        HealthBarDrawings[TargetPlayer]=set
-                    end
-                    local set = HealthBarDrawings[TargetPlayer]
-                    local hV, mH, aV, isDead = GetStableHealthBarValues(TargetPlayer, hum)
-                    local hF = math.clamp(hV/mH, 0, 1)
-                    local aF = math.clamp(aV/100, 0, 1)
-                    local drawA = ShowArmor and aV > 0
-                    set.HealthBack.Color=Color3.fromRGB(8,8,12); set.HealthFill.Color=HealthColor
-                    set.ArmorBack.Color=Color3.fromRGB(8,8,12); set.ArmorFill.Color=ArmorColor
-                    set.HealthBack.Size=Vector2.new(tW, tH+b*2); set.HealthBack.Position=Vector2.new(tX, hBY)
-                    set.HealthFill.Size=Vector2.new(MathFloor(barLen*hF+0.5), tH); set.HealthFill.Position=Vector2.new(tX+b, hFY)
-                    set.ArmorBack.Size=Vector2.new(tW, tH+b*2); set.ArmorBack.Position=Vector2.new(tX, aBY)
-                    set.ArmorFill.Size=Vector2.new(MathFloor(barLen*aF+0.5), tH); set.ArmorFill.Position=Vector2.new(tX+b, aFY)
-                    local sh = hF > 0 and not isDead
-                    set.HealthBack.Visible=sh; set.HealthFill.Visible=sh
-                    set.ArmorBack.Visible=drawA and not isDead; set.ArmorFill.Visible=drawA and aF > 0 and not isDead
-                else HideHealthBarSet(HealthBarDrawings[TargetPlayer]) end
-            end
-        end
-    else
-        for _, set in pairs(HealthBarDrawings) do HideHealthBarSet(set) end
+        ::continue::
     end
 end
 
+-- ══════════════════════════════════════════════════════════════
+-- PLAYER TRACKING
+-- ══════════════════════════════════════════════════════════════
 Players.PlayerRemoving:Connect(function(p)
     removeESPFromPlayer(p)
-    HealthBarValueCache[p]=nil
-    if HealthBarDrawings[p] then RemoveHealthBarSet(HealthBarDrawings[p]); HealthBarDrawings[p]=nil end
+    HealthBarValueCache[p] = nil
 end)
 
-for _, p in pairs(Players:GetPlayers()) do
-    if p ~= LocalPlayer then
-        if p.Character then addESPToPlayer(p) end
-        p.CharacterAdded:Connect(function(c)
-            removeESPFromPlayer(p)
-            c:WaitForChild("HumanoidRootPart"); task.wait(0.1); addESPToPlayer(p)
-        end)
-        p.CharacterRemoving:Connect(function() removeESPFromPlayer(p) end)
-    end
+local function hookPlayer(p)
+    if p == LocalPlayer then return end
+    if p.Character then addESPToPlayer(p) end
+    p.CharacterAdded:Connect(function(c)
+        removeESPFromPlayer(p)
+        c:WaitForChild("HumanoidRootPart")
+        task.wait(0.1)
+        addESPToPlayer(p)
+    end)
+    p.CharacterRemoving:Connect(function() removeESPFromPlayer(p) end)
 end
-Players.PlayerAdded:Connect(function(p)
-    if p ~= LocalPlayer then
-        p.CharacterAdded:Connect(function(c)
-            removeESPFromPlayer(p)
-            c:WaitForChild("HumanoidRootPart"); task.wait(0.1); addESPToPlayer(p)
-        end)
-        p.CharacterRemoving:Connect(function() removeESPFromPlayer(p) end)
-    end
-end)
 
+for _, p in pairs(Players:GetPlayers()) do hookPlayer(p) end
+Players.PlayerAdded:Connect(hookPlayer)
+
+-- ══════════════════════════════════════════════════════════════
+-- TRIGGER BOT
+-- ══════════════════════════════════════════════════════════════
 local function TriggerBot()
-    if not Config['Trigger Bot']['Enabled'] then return end
+    if not Config.TriggerBot.Enabled then return end
     if not triggerEnabled then return end
-    if tick()-lastTriggerClick < Config['Trigger Bot']['Delay'] then return end
+    if tick()-lastTriggerClick < Config.TriggerBot.Delay then return end
     local tp = Mouse.Target
     if not tp then return end
     local ch = tp:FindFirstAncestorOfClass("Model")
@@ -1078,19 +834,20 @@ local function TriggerBot()
     if not canSeeTarget(tp) then return end
     local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
     if not tool then return end
-    if Config['Trigger Bot']['Specific Weapons']['Enabled'] then
+    if Config.TriggerBot.SpecificWeapons.Enabled then
         local ok2 = false
-        for _, w in pairs(Config['Trigger Bot']['Specific Weapons']['Weapons']) do
+        for _, w in pairs(Config.TriggerBot.SpecificWeapons.Weapons) do
             local cn = w:gsub("%[",""):gsub("%]","")
             if tool.Name == w or tool.Name:find(cn) then ok2=true; break end
         end
         if not ok2 then return end
     end
-    tool:Activate(); lastTriggerClick = tick()
+    tool:Activate()
+    lastTriggerClick = tick()
 end
 
 -- ══════════════════════════════════════════════════════════════
--- HOOKS — force reinstall every execution
+-- HOOKS
 -- ══════════════════════════════════════════════════════════════
 if not getgenv().XanaxHooks then getgenv().XanaxHooks = {} end
 local HK = getgenv().XanaxHooks
@@ -1137,7 +894,7 @@ do
         end
         local ok2, result = pcall(function()
             if checkcaller() then return nil end
-            if not (Config and Config['Silent Aim'] and Config['Silent Aim']['Enabled']) then return nil end
+            if not (Config and Config.SilentAim and Config.SilentAim.Enabled) then return nil end
             if not self:IsA("Mouse") then return nil end
             if key ~= "Hit" and key ~= "Target" then return nil end
             if bulletTPActive then
@@ -1159,13 +916,12 @@ do
             if not pl or isPlayerKnockedOrKO(pl) or not canSeeTarget(currentTarget) then return nil end
             if not isTargetInFOV(currentTarget) then return nil end
             if key == "Hit" then
-                local aim = currentTargetPoint or getPredictedPosition(currentTarget, Config['Silent Aim'])
-                local adv = Config['Advanced Aim']
-                if adv and adv['Gaussian Random'] then
-                    local s = adv['Gaussian Spread'] or 0.6
+                local aim = currentTargetPoint or getPredictedPosition(currentTarget, Config.SilentAim)
+                if Config.AdvancedAim.GaussianRandom then
+                    local s = Config.AdvancedAim.GaussianSpread or 0.6
                     aim = aim + Vector3.new(gaussianRandom(0,s),gaussianRandom(0,s),gaussianRandom(0,s))
                 end
-                if Config['Silent Aim']['Method'] == 'Viewport' then
+                if Config.SilentAim.Method == "Viewport" then
                     local sp, on = Camera:WorldToViewportPoint(aim)
                     if on then
                         local ray = Camera:ViewportPointToRay(sp.X, sp.Y)
@@ -1197,19 +953,19 @@ do
         local result = originalRandom(...)
         pcall(function()
             if checkcaller() then return end
-            if not (Config and Config['Spread'] and Config['Spread']['Enabled']) then return end
+            if not (Config and Config.Spread and Config.Spread.Enabled) then return end
             local isRecoil = (#args == 0) or (args[1] == -0.05 and args[2] == 0.05) or (args[1] == -0.1) or (args[1] == -0.05)
             if not isRecoil then return end
             local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
             if not tool then return end
-            if Config['Spread']['Specific Weapons']['Enabled'] then
+            if Config.Spread.SpecificWeapons.Enabled then
                 local found = false
-                for _, w in pairs(Config['Spread']['Specific Weapons']['Weapons']) do
+                for _, w in pairs(Config.Spread.SpecificWeapons.Weapons) do
                     if tool.Name == w then found=true; break end
                 end
                 if not found then return end
             end
-            result = result * (Config['Spread']['Amount']/100)
+            result = result * (Config.Spread.Amount/100)
         end)
         HK.depth_random = HK.depth_random - 1
         return result
@@ -1218,31 +974,23 @@ do
 end
 
 -- ══════════════════════════════════════════════════════════════
--- DESYNC
+-- DESYNC — CFrame offset only, no animation freeze
 -- ══════════════════════════════════════════════════════════════
 local function randomOffsetSafe()
-    local dr = Config['Desync']['Range'] or 1e9
-    local mnY = Config['Desync']['Min Y'] or 100
-    local mxY = Config['Desync']['Max Y'] or 50000
+    local dr = Config.Desync.Range or 1e9
+    local mnY = Config.Desync.MinY or 100
+    local mxY = Config.Desync.MaxY or 50000
     return Vector3.new((math.random()*2-1)*dr, mnY+math.random()*(mxY-mnY), (math.random()*2-1)*dr)
 end
 
 function stopDesync()
     if not desyncActive then return end
     desyncActive = false
-    if desyncRoot and desyncOriginalCFrame then
-        pcall(function() desyncRoot.CFrame = desyncOriginalCFrame end)
-    end
-    if desyncHumanoid then
-        pcall(function()
-            desyncHumanoid.AutoRotate = true
-            desyncHumanoid.PlatformStand = false
-            desyncHumanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-        end)
-    end
-    desyncRoot=nil; desyncOriginalCFrame=nil; desyncHumanoid=nil
-    if desyncCircle then desyncCircle.Visible=false end
-    if desyncLine then desyncLine.Visible=false end
+    desyncRoot = nil
+    desyncHumanoid = nil
+    desyncOriginalCFrame = nil
+    if desyncCircle then desyncCircle.Visible = false end
+    if desyncLine then desyncLine.Visible = false end
 end
 
 local function startDesync()
@@ -1251,75 +999,79 @@ local function startDesync()
     local root = getRootPart(LocalPlayer)
     local hum = ch and ch:FindFirstChildOfClass("Humanoid")
     if not root or not hum then return end
-    desyncRoot=root; desyncHumanoid=hum; desyncOriginalCFrame=root.CFrame
+    desyncRoot = root
+    desyncHumanoid = hum
+    desyncOriginalCFrame = root.CFrame
     if not desyncCircle then
-        desyncCircle=Drawing.new("Circle"); desyncCircle.Thickness=2
-        desyncCircle.Color=Color3.fromRGB(255,0,0); desyncCircle.Radius=8
-        desyncCircle.Filled=true; desyncCircle.Visible=false
+        desyncCircle = Drawing.new("Circle")
+        desyncCircle.Thickness = 2
+        desyncCircle.Color = Color3.fromRGB(255,0,0)
+        desyncCircle.Radius = 8
+        desyncCircle.Filled = true
+        desyncCircle.Visible = false
     end
     if not desyncLine then
-        desyncLine=Drawing.new("Line"); desyncLine.Thickness=2
-        desyncLine.Color=Color3.fromRGB(255,0,0); desyncLine.Visible=false
+        desyncLine = Drawing.new("Line")
+        desyncLine.Thickness = 2
+        desyncLine.Color = Color3.fromRGB(255,0,0)
+        desyncLine.Visible = false
     end
-    hum.AutoRotate=false; hum.PlatformStand=true
-    pcall(function() hum:ChangeState(Enum.HumanoidStateType.Physics) end)
-    desyncActive=true
+    desyncActive = true
     table.insert(connections, RunService.Heartbeat:Connect(function()
-        if not desyncActive or not desyncRoot or not desyncRoot.Parent then stopDesync(); return end
-        desyncRoot.CFrame = desyncOriginalCFrame * CFrame.new(randomOffsetSafe())
-        pcall(function()
-            desyncRoot.AssemblyLinearVelocity=Vector3.new(0,0,0)
-            desyncRoot.Velocity=Vector3.new(0,0,0)
-        end)
-        if desyncHumanoid and desyncHumanoid.Health > 0 then
-            pcall(function() desyncHumanoid:ChangeState(Enum.HumanoidStateType.Physics) end)
+        if not desyncActive or not desyncRoot or not desyncRoot.Parent then
+            stopDesync(); return
         end
+        local off = randomOffsetSafe()
+        desyncRoot.CFrame = desyncOriginalCFrame * CFrame.new(off)
     end))
     table.insert(connections, RunService.RenderStepped:Connect(function()
         if not desyncActive or not desyncOriginalCFrame then
-            if desyncCircle then desyncCircle.Visible=false end
-            if desyncLine then desyncLine.Visible=false end
+            if desyncCircle then desyncCircle.Visible = false end
+            if desyncLine then desyncLine.Visible = false end
             return
         end
         local op = desyncOriginalCFrame.Position
         local sp, on = Camera:WorldToViewportPoint(op)
-        if on then desyncCircle.Position=Vector2.new(sp.X, sp.Y); desyncCircle.Visible=true
-        else desyncCircle.Visible=false end
+        if on then
+            desyncCircle.Position = Vector2.new(sp.X, sp.Y)
+            desyncCircle.Visible = true
+        else
+            desyncCircle.Visible = false
+        end
         if desyncRoot and desyncRoot.Parent then
             local cs, co = Camera:WorldToViewportPoint(desyncRoot.Position)
             local os2, oo = Camera:WorldToViewportPoint(op)
             if co and oo then
-                desyncLine.From=Vector2.new(cs.X, cs.Y); desyncLine.To=Vector2.new(os2.X, os2.Y); desyncLine.Visible=true
-            else desyncLine.Visible=false end
-        else desyncLine.Visible=false end
+                desyncLine.From = Vector2.new(cs.X, cs.Y)
+                desyncLine.To = Vector2.new(os2.X, os2.Y)
+                desyncLine.Visible = true
+            else
+                desyncLine.Visible = false
+            end
+        else
+            desyncLine.Visible = false
+        end
     end))
 end
 
 local function toggleDesync()
-    if desyncActive then stopDesync()
-    else if not Config['Desync']['Enabled'] then return end startDesync() end
+    if desyncActive then
+        stopDesync()
+    else
+        if not Config.Desync.Enabled then return end
+        startDesync()
+    end
 end
 
--- Watchdog: force-reset humanoid if stuck in PlatformStand without desync
-table.insert(connections, RunService.Heartbeat:Connect(function()
-    if desyncActive then return end
-    local ch = LocalPlayer.Character
-    local hum = ch and ch:FindFirstChildOfClass("Humanoid")
-    if not hum then return end
-    if hum.PlatformStand then
-        pcall(function()
-            hum.PlatformStand = false
-            hum.AutoRotate = true
-            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-        end)
-    end
-end))
-
+-- ══════════════════════════════════════════════════════════════
+-- SPECTATE
+-- ══════════════════════════════════════════════════════════════
 local function startSpectate()
     if spectateActive then return end
     local t = findClosestPlayer()
     if not t then return end
-    spectateTarget=t; spectateActive=true
+    spectateTarget = t
+    spectateActive = true
     pcall(function() Camera.CameraSubject = t.Character end)
     task.spawn(function()
         while spectateActive and spectateTarget do
@@ -1327,7 +1079,9 @@ local function startSpectate()
             if not p.Parent then break end
             if not p.Character or not p.Character:FindFirstChild("HumanoidRootPart") then
                 p.CharacterAdded:Wait()
-                if spectateActive and spectateTarget == p then pcall(function() Camera.CameraSubject = p.Character end) end
+                if spectateActive and spectateTarget == p then
+                    pcall(function() Camera.CameraSubject = p.Character end)
+                end
             end
             task.wait(1)
         end
@@ -1336,118 +1090,164 @@ end
 
 function stopSpectate()
     if not spectateActive then return end
-    spectateActive=false; spectateTarget=nil
-    if LocalPlayer.Character then pcall(function() Camera.CameraSubject = LocalPlayer.Character end) end
+    spectateActive = false
+    spectateTarget = nil
+    if LocalPlayer.Character then
+        pcall(function() Camera.CameraSubject = LocalPlayer.Character end)
+    end
 end
 
 local function toggleSpectate()
     if spectateActive then stopSpectate() else startSpectate() end
 end
 
+-- ══════════════════════════════════════════════════════════════
+-- MOVEMENT / SUPER JUMP / INFINITE RANGE
+-- ══════════════════════════════════════════════════════════════
 table.insert(connections, RunService.Heartbeat:Connect(function()
-    if not Config['Super Jump']['Enabled'] then return end
+    if not Config.SuperJump.Enabled then return end
     local ch = LocalPlayer.Character; if not ch then return end
     local hum = ch:FindFirstChildOfClass("Humanoid")
     local rp = ch:FindFirstChild("HumanoidRootPart")
     if not hum or not rp then return end
-    if UserInputService:IsKeyDown(Enum.KeyCode[Config['Keybinds']['Super Jump']])
+    if UserInputService:IsKeyDown(Enum.KeyCode[Config.Keybinds.SuperJump])
         and (hum:GetState()==Enum.HumanoidStateType.Landed or hum.FloorMaterial ~= Enum.Material.Air) then
-        rp.Velocity=Vector3.new(rp.Velocity.X, Config['Super Jump']['Power'], rp.Velocity.Z)
-        task.wait(Config['Super Jump']['Cooldown'])
+        rp.Velocity = Vector3.new(rp.Velocity.X, Config.SuperJump.Power, rp.Velocity.Z)
+        task.wait(Config.SuperJump.Cooldown)
     end
 end))
 
-snaplineDrawing=Drawing.new("Line"); snaplineDrawing.Visible=false
-snaplineDrawing.Thickness=Config['Snapline']['Thickness']
-snaplineDrawing.Color=Config['Snapline']['Color']
-
-silentFovCircle=Drawing.new("Circle")
-silentFovCircle.Visible=false; silentFovCircle.Thickness=Config['Silent Aim FOV']['Thickness']
-silentFovCircle.Color=Config['Silent Aim FOV']['Color']; silentFovCircle.Filled=false
-silentFovCircle.NumSides=100; silentFovCircle.Radius=Config['Silent Aim FOV']['Radius']
-silentFovCircle.Position=Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
-
-camlockFovCircle=Drawing.new("Circle")
-camlockFovCircle.Visible=false; camlockFovCircle.Thickness=Config['Camera Lock FOV']['Thickness']
-camlockFovCircle.Color=Config['Camera Lock FOV']['Color']; camlockFovCircle.Filled=false
-camlockFovCircle.NumSides=100; camlockFovCircle.Radius=Config['Camera Lock FOV']['Radius']
-camlockFovCircle.Position=Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
-
 table.insert(connections, RunService.RenderStepped:Connect(function()
-    if isSelfKnocked() and isLocking then currentTarget=nil; isLocking=false end
-    TriggerBot()
-    if currentTarget then
-        local p = Players:GetPlayerFromCharacter(currentTarget.Parent)
-        if not p or isPlayerKnockedOrKO(p) then currentTarget=nil; isLocking=false end
-    end
-    if aimAssistTarget and isPlayerKnockedOrKO(aimAssistTarget) then aimAssistTarget=nil; aimAssistEnabled=false end
-    if SpeedEnabled and Config['Speed']['Enabled'] then
-        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
-        if hum then
-            local tgt = 16*Config['Speed']['Multiplier']
-            if hum.WalkSpeed ~= tgt then hum.WalkSpeed = tgt end
-        end
-        if Config['Speed']['Anti Fling'] then
-            local rp = getRootPart(LocalPlayer)
-            if rp then local v = rp.Velocity; if v.Y > 50 or v.Y < -50 then rp.Velocity=Vector3.new(v.X, 0, v.Z) end end
-        end
-    end
-    if Config['Hitbox Expander']['Enabled'] then
-        for _, p in pairs(Players:GetPlayers()) do
-            if p ~= LocalPlayer and p.Character then
-                local rp = p.Character:FindFirstChild("HumanoidRootPart")
-                if rp then
-                    rp.Size=Vector3.new(Config['Hitbox Expander']['Size'], Config['Hitbox Expander']['Size'], Config['Hitbox Expander']['Size'])
-                    if Config['Hitbox Expander']['Visualize'] then
-                        rp.Transparency=0.7; rp.BrickColor=BrickColor.new("Really blue")
-                        rp.Material="Neon"; rp.CanCollide=false
-                    else rp.Transparency=1 end
-                end
-            end
-        end
-    end
-    local sc = Config['Silent Aim FOV']
-    if sc.Enabled and sc.Visible then
-        silentFovCircle.Visible=true; silentFovCircle.Radius=sc.Radius
-        silentFovCircle.Color=sc.Color; silentFovCircle.Thickness=sc.Thickness
-        silentFovCircle.Position=Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
-    else silentFovCircle.Visible=false end
-    local cc = Config['Camera Lock FOV']
-    if cc.Enabled and cc.Visible then
-        camlockFovCircle.Visible=true; camlockFovCircle.Radius=cc.Radius
-        camlockFovCircle.Color=cc.Color; camlockFovCircle.Thickness=cc.Thickness
-        camlockFovCircle.Position=Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
-    else camlockFovCircle.Visible=false end
-    refreshESP()
-    if Config['Snapline']['Enabled'] and currentTarget then
-        local tp = currentTarget.Parent and currentTarget.Parent:FindFirstChild(Config['Snapline']['TargetPart'])
-        if tp then
-            local sp, on = Camera:WorldToViewportPoint(tp.Position)
-            snaplineDrawing.From=Vector2.new(Mouse.X, Mouse.Y+Config['Snapline']['MouseOffsetY'])
-            snaplineDrawing.To=Vector2.new(sp.X, sp.Y)
-            snaplineDrawing.Visible=on
-        else snaplineDrawing.Visible=false end
-    else snaplineDrawing.Visible=false end
-    applyAimAssist()
-end))
-
-table.insert(connections, RunService.RenderStepped:Connect(function()
-    if not Config['Infinite Range']['Enabled'] or not infRangeActive then return end
+    if not Config.InfiniteRange.Enabled or not infRangeActive then return end
     local ch = LocalPlayer.Character; if not ch then return end
     local tool = ch:FindFirstChildOfClass("Tool"); if not tool then return end
     for _, pn in pairs({"Range","MaxRange","FireRange","Distance","MaxDistance"}) do
         local rv = tool:FindFirstChild(pn)
-        if rv and rv:IsA("NumberValue") then rv.Value = Config['Infinite Range']['Max Range'] end
+        if rv and rv:IsA("NumberValue") then rv.Value = Config.InfiniteRange.MaxRange end
         local cfg = tool:FindFirstChild("Configuration") or tool:FindFirstChild("GunConfig")
-        if cfg then local r = cfg:FindFirstChild(pn); if r and r:IsA("NumberValue") then r.Value = Config['Infinite Range']['Max Range'] end end
+        if cfg then
+            local r = cfg:FindFirstChild(pn)
+            if r and r:IsA("NumberValue") then r.Value = Config.InfiniteRange.MaxRange end
+        end
     end
 end))
 
+-- ══════════════════════════════════════════════════════════════
+-- DRAWINGS
+-- ══════════════════════════════════════════════════════════════
+snaplineDrawing = Drawing.new("Line")
+snaplineDrawing.Visible = false
+snaplineDrawing.Thickness = Config.Snapline.Thickness
+snaplineDrawing.Color = Config.Snapline.Color
+
+silentFovCircle = Drawing.new("Circle")
+silentFovCircle.Visible = false
+silentFovCircle.Thickness = Config.SilentAimFOV.Thickness
+silentFovCircle.Color = Config.SilentAimFOV.Color
+silentFovCircle.Filled = false
+silentFovCircle.NumSides = 100
+silentFovCircle.Radius = Config.SilentAimFOV.Radius
+silentFovCircle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+
+camlockFovCircle = Drawing.new("Circle")
+camlockFovCircle.Visible = false
+camlockFovCircle.Thickness = Config.CameraLockFOV.Thickness
+camlockFovCircle.Color = Config.CameraLockFOV.Color
+camlockFovCircle.Filled = false
+camlockFovCircle.NumSides = 100
+camlockFovCircle.Radius = Config.CameraLockFOV.Radius
+camlockFovCircle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+
+-- ══════════════════════════════════════════════════════════════
+-- MAIN RENDER LOOP
+-- ══════════════════════════════════════════════════════════════
+table.insert(connections, RunService.RenderStepped:Connect(function()
+    if isSelfKnocked() and isLocking then currentTarget = nil; isLocking = false end
+    TriggerBot()
+    if currentTarget then
+        local p = Players:GetPlayerFromCharacter(currentTarget.Parent)
+        if not p or isPlayerKnockedOrKO(p) then currentTarget = nil; isLocking = false end
+    end
+    if aimAssistTarget and isPlayerKnockedOrKO(aimAssistTarget) then
+        aimAssistTarget = nil; aimAssistEnabled = false
+    end
+    if SpeedEnabled and Config.Speed.Enabled then
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+        if hum then
+            local tgt = 16*Config.Speed.Multiplier
+            if hum.WalkSpeed ~= tgt then hum.WalkSpeed = tgt end
+        end
+        if Config.Speed.AntiFling then
+            local rp = getRootPart(LocalPlayer)
+            if rp then
+                local v = rp.Velocity
+                if v.Y > 50 or v.Y < -50 then rp.Velocity = Vector3.new(v.X, 0, v.Z) end
+            end
+        end
+    end
+    if Config.HitboxExpander.Enabled then
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character then
+                local rp = p.Character:FindFirstChild("HumanoidRootPart")
+                if rp then
+                    rp.Size = Vector3.new(Config.HitboxExpander.Size, Config.HitboxExpander.Size, Config.HitboxExpander.Size)
+                    if Config.HitboxExpander.Visualize then
+                        rp.Transparency = 0.7
+                        rp.BrickColor = BrickColor.new("Really blue")
+                        rp.Material = "Neon"
+                        rp.CanCollide = false
+                    else
+                        rp.Transparency = 1
+                    end
+                end
+            end
+        end
+    end
+    local sc = Config.SilentAimFOV
+    if sc.Enabled and sc.Visible then
+        silentFovCircle.Visible = true
+        silentFovCircle.Radius = sc.Radius
+        silentFovCircle.Color = sc.Color
+        silentFovCircle.Thickness = sc.Thickness
+        silentFovCircle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    else
+        silentFovCircle.Visible = false
+    end
+    local cc = Config.CameraLockFOV
+    if cc.Enabled and cc.Visible then
+        camlockFovCircle.Visible = true
+        camlockFovCircle.Radius = cc.Radius
+        camlockFovCircle.Color = cc.Color
+        camlockFovCircle.Thickness = cc.Thickness
+        camlockFovCircle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    else
+        camlockFovCircle.Visible = false
+    end
+    refreshESP()
+    if Config.Snapline.Enabled and currentTarget then
+        local tp = currentTarget.Parent and currentTarget.Parent:FindFirstChild(Config.Snapline.TargetPart)
+        if tp then
+            local sp, on = Camera:WorldToViewportPoint(tp.Position)
+            snaplineDrawing.From = Vector2.new(Mouse.X, Mouse.Y+Config.Snapline.MouseOffsetY)
+            snaplineDrawing.To = Vector2.new(sp.X, sp.Y)
+            snaplineDrawing.Visible = on
+        else
+            snaplineDrawing.Visible = false
+        end
+    else
+        snaplineDrawing.Visible = false
+    end
+    applyAimAssist()
+end))
+
+-- ══════════════════════════════════════════════════════════════
+-- MOD DETECTOR
+-- ══════════════════════════════════════════════════════════════
 do
-    local ModCfg = Config['Mod Detector']
-    if ModCfg and ModCfg['Enabled'] then
-        local COMMUNITY_ID = ModCfg['Community ID'] or 17215700
-        local KICK_MSG = ModCfg['Kick Message'] or "xanax.wtf — A moderator has joined the game!"
+    local ModCfg = Config.ModDetector
+    if ModCfg and ModCfg.Enabled then
+        local COMMUNITY_ID = ModCfg.CommunityID or 17215700
+        local KICK_MSG = ModCfg.KickMessage or "xanax.wtf — A moderator has joined the game!"
         local function checkMod(player)
             if player == LocalPlayer then return false end
             local ok2, isIn = pcall(function() return player:IsInGroup(COMMUNITY_ID) end)
@@ -1456,19 +1256,25 @@ do
             return true
         end
         for _, p in ipairs(Players:GetPlayers()) do if checkMod(p) then break end end
-        table.insert(connections, Players.PlayerAdded:Connect(function(p) task.wait(0.5); checkMod(p) end))
+        table.insert(connections, Players.PlayerAdded:Connect(function(p)
+            task.wait(0.5); checkMod(p)
+        end))
     end
 end
 
+-- ══════════════════════════════════════════════════════════════
+-- SKIN CHANGER
+-- ══════════════════════════════════════════════════════════════
 do
-    local SkinCfg = Config['Skin Changer']
-    if SkinCfg and SkinCfg['Enabled'] then
+    local SkinCfg = Config.SkinChanger
+    if SkinCfg and SkinCfg.Enabled then
         local HANDLE_MAP = { DB_HANDLE="DoubleBarrel", REV_HANDLE="Revolver" }
         local function isBasePart(x) return typeof(x)=="Instance" and x:IsA("BasePart") end
         local function ensurePrimaryPart(m)
             if m and m:IsA("Model") then
                 if not isBasePart(m.PrimaryPart) then
-                    local f = m:FindFirstChildWhichIsA("BasePart"); if f then m.PrimaryPart=f end
+                    local f = m:FindFirstChildWhichIsA("BasePart")
+                    if f then m.PrimaryPart = f end
                 end
                 return m.PrimaryPart
             end
@@ -1476,15 +1282,18 @@ do
         local function prepParts(model, isKnife)
             for _, part in ipairs(model:GetDescendants()) do
                 if part:IsA("BasePart") then
-                    part.CanCollide=false; part.Anchored=false; part.Massless=true
-                    part.Transparency=math.clamp(part.Transparency, 0, 1)
+                    part.CanCollide = false
+                    part.Anchored = false
+                    part.Massless = true
+                    part.Transparency = math.clamp(part.Transparency, 0, 1)
                 end
                 if isKnife and part:IsA("MeshPart") then
-                    local sa = part:FindFirstChildOfClass("SurfaceAppearance"); if sa then sa:Destroy() end
+                    local sa = part:FindFirstChildOfClass("SurfaceAppearance")
+                    if sa then sa:Destroy() end
                     if part.TextureID == "" then
                         local name = part.Name:lower()
                         if name:find("box") or name:find("cube") or name:find("part") or name:find("hit") then
-                            part.Transparency=1
+                            part.Transparency = 1
                         end
                     end
                 end
@@ -1492,48 +1301,64 @@ do
         end
         local function weldParts(a, b)
             if isBasePart(a) and isBasePart(b) then
-                local w = Instance.new("WeldConstraint"); w.Part0=a; w.Part1=b; w.Parent=a; return w
+                local w = Instance.new("WeldConstraint")
+                w.Part0 = a; w.Part1 = b; w.Parent = a
+                return w
             end
         end
         local function getWrapSkin(wname, sname, timeout)
             timeout = timeout or 5
-            local wraps = ReplicatedStorage:WaitForChild("Wraps", timeout); if not wraps then return nil end
-            local folder = wraps:WaitForChild("["..wname.."]", timeout); if not folder then return nil end
+            local wraps = ReplicatedStorage:WaitForChild("Wraps", timeout)
+            if not wraps then return nil end
+            local folder = wraps:WaitForChild("["..wname.."]", timeout)
+            if not folder then return nil end
             if not sname or sname == "" then return nil end
             return folder:WaitForChild(sname, timeout)
         end
         local function applyModelOnHolder(holder, skinModel)
             if not holder or not skinModel then return end
-            local handle = holder:FindFirstChild("Handle"); if not isBasePart(handle) then return end
+            local handle = holder:FindFirstChild("Handle")
+            if not isBasePart(handle) then return end
             local old = holder:FindFirstChild("SkinModel"); if old then old:Destroy() end
-            local clone = skinModel:Clone(); clone.Name="SkinModel"
-            local primary = ensurePrimaryPart(clone); if not isBasePart(primary) then return end
+            local clone = skinModel:Clone(); clone.Name = "SkinModel"
+            local primary = ensurePrimaryPart(clone)
+            if not isBasePart(primary) then return end
             prepParts(clone, holder.Name:find("Knife") and true or false)
-            clone.Parent=holder; clone:PivotTo(handle.CFrame)
+            clone.Parent = holder
+            clone:PivotTo(handle.CFrame)
             for _, part in ipairs(clone:GetDescendants()) do
                 if part:IsA("BasePart") then weldParts(handle, part) end
             end
-            handle.Transparency=1
+            handle.Transparency = 1
         end
         local function applyToolSkin(tool)
             if not tool or not tool:IsA("Tool") then return end
-            local wname = tool.Name:match("^%[(.+)%]$"); if not wname then return end
-            local sname = SkinCfg['Skins'][wname]; if not sname or sname == "" then return end
-            local sm = getWrapSkin(wname, sname, 5); if sm then applyModelOnHolder(tool, sm) end
+            local wname = tool.Name:match("^%[(.+)%]$")
+            if not wname then return end
+            local sname = SkinCfg.Skins[wname]
+            if not sname or sname == "" then return end
+            local sm = getWrapSkin(wname, sname, 5)
+            if sm then applyModelOnHolder(tool, sm) end
         end
         local function applyKnifeSkin(tool)
             if not tool or not tool:IsA("Tool") then return end
             if tool.Name ~= "[Knife]" then return end
-            local kn = SkinCfg['Special Skins'] and SkinCfg['Special Skins']['Knife']
+            local kn = SkinCfg.SpecialSkins and SkinCfg.SpecialSkins.Knife
             if not kn or kn == "" then return end
-            local knives = ReplicatedStorage:FindFirstChild("Knives"); if not knives then return end
-            local sm = knives:FindFirstChild(kn); if sm then applyModelOnHolder(tool, sm) end
+            local knives = ReplicatedStorage:FindFirstChild("Knives")
+            if not knives then return end
+            local sm = knives:FindFirstChild(kn)
+            if sm then applyModelOnHolder(tool, sm) end
         end
         local function applyHandleSkin(character, handleFolder)
-            local wname = HANDLE_MAP[handleFolder]; if not wname then return end
-            local sname = SkinCfg['Skins'][wname]; if not sname or sname == "" then return end
-            local folder = character:FindFirstChild(handleFolder); if not folder then return end
-            local sm = getWrapSkin(wname, sname, 5); if sm then applyModelOnHolder(folder, sm) end
+            local wname = HANDLE_MAP[handleFolder]
+            if not wname then return end
+            local sname = SkinCfg.Skins[wname]
+            if not sname or sname == "" then return end
+            local folder = character:FindFirstChild(handleFolder)
+            if not folder then return end
+            local sm = getWrapSkin(wname, sname, 5)
+            if sm then applyModelOnHolder(folder, sm) end
         end
         local function applyAll(character)
             for _, tool in ipairs(character:GetChildren()) do
@@ -1543,18 +1368,28 @@ do
         end
         local function connect(character)
             table.insert(connections, character.ChildAdded:Connect(function(child)
-                if child:IsA("Tool") then task.defer(function() applyToolSkin(child); applyKnifeSkin(child) end)
-                elseif HANDLE_MAP[child.Name] then task.defer(function() applyHandleSkin(character, child.Name) end) end
+                if child:IsA("Tool") then
+                    task.defer(function() applyToolSkin(child); applyKnifeSkin(child) end)
+                elseif HANDLE_MAP[child.Name] then
+                    task.defer(function() applyHandleSkin(character, child.Name) end)
+                end
             end))
             applyAll(character)
         end
-        table.insert(connections, LocalPlayer.CharacterAdded:Connect(function(char) task.wait(0.5); connect(char) end))
-        if LocalPlayer.Character then task.defer(function() task.wait(0.5); connect(LocalPlayer.Character) end) end
+        table.insert(connections, LocalPlayer.CharacterAdded:Connect(function(char)
+            task.wait(0.5); connect(char)
+        end))
+        if LocalPlayer.Character then
+            task.defer(function() task.wait(0.5); connect(LocalPlayer.Character) end)
+        end
     end
 end
 
+-- ══════════════════════════════════════════════════════════════
+-- HOOD FEATURES (Auto Stomp / Auto Reload / Anti Stomp / Fake AFK)
+-- ══════════════════════════════════════════════════════════════
 do
-    local HoodCfg = Config['Hood Features']
+    local HoodCfg = Config.HoodFeatures
     if HoodCfg then
         local MainEvent = ReplicatedStorage:WaitForChild("MainEvent", 10)
         local stompState = { active=false, running=false, returnCFrame=nil, target=nil }
@@ -1570,21 +1405,22 @@ do
             end
         end
         local function stopAutoStomp()
-            stompState.active=false; stompState.running=false
+            stompState.active = false
+            stompState.running = false
             if stompState.returnCFrame then
                 local c = LocalPlayer.Character
                 local hrp = c and c:FindFirstChild("HumanoidRootPart")
                 if hrp then pcall(function() hrp.CFrame = stompState.returnCFrame end) end
-                stompState.returnCFrame=nil
+                stompState.returnCFrame = nil
             end
-            stompState.target=nil
+            stompState.target = nil
         end
         local function startAutoStompLoop()
             if stompState.running then return end
-            stompState.running=true
+            stompState.running = true
             task.spawn(function()
-                local yOff = HoodCfg['Auto Stomp']['Y Offset'] or 3.5
-                local stomps = HoodCfg['Auto Stomp']['Stomp Count'] or 5
+                local yOff = HoodCfg.AutoStomp.YOffset or 3.5
+                local stomps = HoodCfg.AutoStomp.StompCount or 5
                 while stompState.active do
                     local c = LocalPlayer.Character
                     local hrp = c and c:FindFirstChild("HumanoidRootPart")
@@ -1598,37 +1434,45 @@ do
                     local dead = be and be:FindFirstChild("Dead")
                     if not t or not ko or not ko.Value or (dead and dead.Value) then
                         if stompState.returnCFrame then hrp.CFrame = stompState.returnCFrame end
-                        stompState.returnCFrame=nil; stompState.target=nil
-                        task.wait(); continue
+                        stompState.returnCFrame = nil
+                        stompState.target = nil
+                        task.wait()
+                        continue
                     end
                     local ut = tc:FindFirstChild("UpperTorso")
                     if ut and MainEvent then
                         if not stompState.returnCFrame then stompState.returnCFrame = hrp.CFrame end
-                        hum.Sit=false; hum.PlatformStand=false
+                        hum.Sit = false
+                        hum.PlatformStand = false
                         pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
                         pcall(function() hrp.Velocity = Vector3.zero end)
                         hrp.CFrame = CFrame.new(ut.Position + Vector3.new(0, yOff, 0))
                         RunService.RenderStepped:Wait()
-                        for _ = 1, stomps do pcall(function() MainEvent:FireServer("Stomp") end) end
+                        for _ = 1, stomps do
+                            pcall(function() MainEvent:FireServer("Stomp") end)
+                        end
                         hrp.CFrame = stompState.returnCFrame
                     end
                     task.wait()
                 end
-                stompState.target=nil; stompState.returnCFrame=nil; stompState.running=false
+                stompState.target = nil
+                stompState.returnCFrame = nil
+                stompState.running = false
             end)
         end
-        if HoodCfg['Auto Stomp'] and HoodCfg['Auto Stomp']['Enabled'] then
-            stompState.active=true; startAutoStompLoop()
+        if HoodCfg.AutoStomp and HoodCfg.AutoStomp.Enabled then
+            stompState.active = true
+            startAutoStompLoop()
         end
         getgenv().XanaxSetAutoStomp = function(v)
-            stompState.active=v
+            stompState.active = v
             if v then startAutoStompLoop() else stopAutoStomp() end
         end
-        if HoodCfg['Auto Reload'] and HoodCfg['Auto Reload']['Enabled'] then
-            local ReloadCfg = HoodCfg['Auto Reload']
+        if HoodCfg.AutoReload and HoodCfg.AutoReload.Enabled then
+            local ReloadCfg = HoodCfg.AutoReload
             local lastReload = {}
-            local cooldown = ReloadCfg['Cooldown'] or 1.0
-            local tools = ReloadCfg['Tools'] or {}
+            local cooldown = ReloadCfg.Cooldown or 1.0
+            local tools = ReloadCfg.Tools or {}
             table.insert(connections, RunService.RenderStepped:Connect(function()
                 local char = LocalPlayer.Character; if not char then return end
                 for _, name in ipairs(tools) do
@@ -1647,8 +1491,8 @@ do
                 end
             end))
         end
-        if HoodCfg['Anti Stomp'] and HoodCfg['Anti Stomp']['Enabled'] then
-            local antiKey = HoodCfg['Anti Stomp']['Key'] or 'P'
+        if HoodCfg.AntiStomp and HoodCfg.AntiStomp.Enabled then
+            local antiKey = HoodCfg.AntiStomp.Key or 'P'
             table.insert(connections, UserInputService.InputBegan:Connect(function(input, gp)
                 if gp then return end
                 if input.KeyCode == Enum.KeyCode[antiKey] then
@@ -1659,10 +1503,10 @@ do
                 end
             end))
         end
-        if HoodCfg['Fake AFK'] and HoodCfg['Fake AFK']['Enabled'] and MainEvent then
-            local interval = HoodCfg['Fake AFK']['Interval'] or 0.5
+        if HoodCfg.FakeAFK and HoodCfg.FakeAFK.Enabled and MainEvent then
+            local interval = HoodCfg.FakeAFK.Interval or 0.5
             task.spawn(function()
-                while shared.__XANAX_RUNNING and HoodCfg['Fake AFK']['Enabled'] do
+                while shared.__XANAX_RUNNING and HoodCfg.FakeAFK.Enabled do
                     pcall(function() MainEvent:FireServer("RequestAFKDisplay", true) end)
                     task.wait(interval)
                 end
@@ -1671,13 +1515,16 @@ do
     end
 end
 
+-- ══════════════════════════════════════════════════════════════
+-- DEVICE SPOOFER
+-- ══════════════════════════════════════════════════════════════
 do
-    local DevCfg = Config['Device Spoofer']
-    if DevCfg and DevCfg['Enabled'] then
+    local DevCfg = Config.DeviceSpoofer
+    if DevCfg and DevCfg.Enabled then
         local MainEvent = ReplicatedStorage:WaitForChild("MainEvent", 10)
         if MainEvent then
-            local device = DevCfg['Device'] or 'IS_DESKTOP'
-            local interval = DevCfg['Interval'] or 1.0
+            local device = DevCfg.Device or 'IS_DESKTOP'
+            local interval = DevCfg.Interval or 1.0
             local valid = { IS_CONSOLE=true, IS_DESKTOP=true, IS_MOBILE=true }
             if not valid[device] then device = 'IS_DESKTOP' end
             task.spawn(function()
@@ -1690,29 +1537,177 @@ do
     end
 end
 
-if Config['UI'] and Config['UI']['Enabled'] then
-    local UI = Config['UI']
+-- ══════════════════════════════════════════════════════════════
+-- AUTO REJOIN (on kick only)
+-- ══════════════════════════════════════════════════════════════
+do
+    local AR = Config.AutoRejoin
+    if AR and AR.Enabled then
+        local rejoining = false
+        local function doRejoin()
+            if rejoining then return end
+            rejoining = true
+            local placeId = game.PlaceId
+            local jobId = game.JobId
+            task.wait(AR.Delay or 2)
+            if AR.SameServerFirst and jobId and jobId ~= "" then
+                local ok2 = pcall(function()
+                    TeleportService:TeleportToPlaceInstance(placeId, jobId, LocalPlayer)
+                end)
+                if ok2 then return end
+            end
+            if AR.FallbackNewServer then
+                pcall(function()
+                    TeleportService:Teleport(placeId, LocalPlayer)
+                end)
+            end
+        end
+        table.insert(connections, LocalPlayer.OnTeleport:Connect(function(state)
+            if state == Enum.TeleportState.Started then return end
+        end))
+        -- detect kick via PlayerRemoving of LocalPlayer? Not reliable. Use Kick hook.
+        local mt = getrawmetatable(game)
+        local oldNamecall = mt.__namecall
+        setreadonly(mt, false)
+        mt.__namecall = newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            if method == "Kick" and self == LocalPlayer and not checkcaller() then
+                task.spawn(doRejoin)
+            end
+            return oldNamecall(self, ...)
+        end)
+        setreadonly(mt, true)
+        -- Manual keybind
+        table.insert(connections, UserInputService.InputBegan:Connect(function(input, gp)
+            if gp then return end
+            if input.KeyCode == Enum.KeyCode[AR.Key] then
+                task.spawn(doRejoin)
+            end
+        end))
+    end
+end
+
+-- ══════════════════════════════════════════════════════════════
+-- INVENTORY SORTER (hotbar + backpack, keybind)
+-- ══════════════════════════════════════════════════════════════
+do
+    local IS = Config.InventorySorter
+    if IS and IS.Enabled then
+        local function getBackpack()
+            return LocalPlayer:FindFirstChild("Backpack")
+        end
+        local function getHotbarTools()
+            local char = LocalPlayer.Character
+            local tools = {}
+            if char then
+                for _, c in ipairs(char:GetChildren()) do
+                    if c:IsA("Tool") then table.insert(tools, c) end
+                end
+            end
+            return tools
+        end
+        local function getAllTools()
+            local tools = {}
+            for _, t in ipairs(getHotbarTools()) do table.insert(tools, t) end
+            local bp = getBackpack()
+            if bp then
+                for _, c in ipairs(bp:GetChildren()) do
+                    if c:IsA("Tool") then table.insert(tools, c) end
+                end
+            end
+            return tools
+        end
+        local function priorityIndex(name)
+            for i, pname in ipairs(IS.Prioritize) do
+                if name == pname or name:find(pname, 1, true) then return i end
+            end
+            return nil
+        end
+        local function sortTools()
+            local tools = getAllTools()
+            if #tools == 0 then return end
+            local prioritized, rest = {}, {}
+            for _, t in ipairs(tools) do
+                local idx = priorityIndex(t.Name)
+                if idx then
+                    table.insert(prioritized, { idx = idx, tool = t })
+                else
+                    table.insert(rest, t)
+                end
+            end
+            table.sort(prioritized, function(a, b) return a.idx < b.idx end)
+            table.sort(rest, function(a, b) return a.Name < b.Name end)
+            local backpack = getBackpack()
+            if not backpack then return end
+            -- Move everything to backpack first
+            for _, t in ipairs(tools) do
+                if t.Parent ~= backpack then
+                    pcall(function() t.Parent = backpack end)
+                end
+            end
+            -- Wait a frame so replication settles
+            RunService.Heartbeat:Wait()
+            -- Move prioritized to hotbar (max 9 slots? Hood hotbar has limited slots)
+            local maxHotbar = 9
+            local hotbarTools = getHotbarTools()
+            local char = LocalPlayer.Character
+            if not char then return end
+            -- Humanoid needed to equip
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if not hum then return end
+            -- We move prioritized into the character (which is the hotbar)
+            for i, entry in ipairs(prioritized) do
+                if i > maxHotbar then break end
+                pcall(function() hum:EquipTool(entry.tool) end)
+                RunService.Heartbeat:Wait()
+            end
+        end
+        local lastAutoSort = 0
+        if IS.AutoSort then
+            table.insert(connections, RunService.Heartbeat:Connect(function()
+                if tick() - lastAutoSort < (IS.AutoSortDelay or 1.5) then return end
+                lastAutoSort = tick()
+                pcall(sortTools)
+            end))
+        end
+        table.insert(connections, UserInputService.InputBegan:Connect(function(input, gp)
+            if gp then return end
+            if input.KeyCode == Enum.KeyCode[IS.Key] then
+                pcall(sortTools)
+            end
+        end))
+    end
+end
+
+-- ══════════════════════════════════════════════════════════════
+-- HUD — xanax.wtf / @nosignificancy
+-- ══════════════════════════════════════════════════════════════
+if Config.UI and Config.UI.Enabled then
+    local UI = Config.UI
     local gui = Instance.new("ScreenGui")
-    gui.Name="XanaxUI"; gui.ResetOnSpawn=false
-    gui.ZIndexBehavior=Enum.ZIndexBehavior.Sibling; gui.IgnoreGuiInset=true
+    gui.Name = "XanaxUI"
+    gui.ResetOnSpawn = false
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.IgnoreGuiInset = true
     local uiOk = pcall(function() gui.Parent = game.CoreGui end)
     if not uiOk or not gui.Parent then gui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
     local lbl = Instance.new("TextLabel")
-    lbl.Name="MainText"; lbl.Parent=gui
-    lbl.AnchorPoint=Vector2.new(0.5, 1)
-    lbl.Position=UDim2.new(0.5, UI['Position']['X'] or 0, 1, UI['Position']['Y'] or -180)
-    lbl.Size=UDim2.new(0, 600, 0, 300)
-    lbl.BackgroundTransparency=1
-    lbl.TextXAlignment=Enum.TextXAlignment.Center
-    lbl.TextYAlignment=Enum.TextYAlignment.Bottom
-    lbl.Font=Enum.Font.GothamBold
-    lbl.RichText=true
-    lbl.TextSize=UI['TextSize'] or 18
-    lbl.TextStrokeTransparency=0.5
-    lbl.TextStrokeColor3=Color3.fromRGB(0,0,0)
-    lbl.LineHeight=1.15
-    lbl.Visible=true
+    lbl.Name = "MainText"
+    lbl.Parent = gui
+    lbl.AnchorPoint = Vector2.new(0.5, 1)
+    lbl.Position = UDim2.new(0.5, UI.Position.X or 0, 1, UI.Position.Y or -180)
+    lbl.Size = UDim2.new(0, 700, 0, 320)
+    lbl.BackgroundTransparency = 1
+    lbl.TextXAlignment = Enum.TextXAlignment.Center
+    lbl.TextYAlignment = Enum.TextYAlignment.Bottom
+    lbl.Font = Enum.Font.GothamBold
+    lbl.RichText = true
+    lbl.TextSize = UI.TextSize or 18
+    lbl.TextStrokeTransparency = 0.4
+    lbl.TextStrokeColor3 = Color3.fromRGB(0,0,0)
+    lbl.LineHeight = 1.2
+    lbl.Visible = true
 
     local function rgb(c) return string.format("rgb(%d,%d,%d)", c.R*255, c.G*255, c.B*255) end
     local function getTargetName()
@@ -1737,7 +1732,7 @@ if Config['UI'] and Config['UI']['Enabled'] then
     end
     local function featureLine(name, tname, tdist)
         if tname and tdist then
-            return string.format('%s <font color="%s">(%s - %d)</font>', name, rgb(UI['TargetColor']), tname, tdist)
+            return string.format('%s <font color="%s">(%s - %d)</font>', name, rgb(UI.TargetColor), tname, tdist)
         end
         return name
     end
@@ -1745,79 +1740,87 @@ if Config['UI'] and Config['UI']['Enabled'] then
     table.insert(connections, RunService.RenderStepped:Connect(function()
         local lines = {}
         lines[#lines+1] = string.format('<font size="%d" color="%s"><b>%s</b></font>',
-            UI['BrandSize'] or 20, rgb(UI['BrandColor']), UI['Brand'] or 'xanax.wtf')
-        if UI['Subtitle'] and UI['Subtitle'] ~= "" then
+            UI.BrandSize or 20, rgb(UI.BrandColor), UI.Brand or 'xanax.wtf')
+        if UI.Subtitle and UI.Subtitle ~= "" then
             lines[#lines+1] = string.format('<font size="%d" color="%s">%s</font>',
-                UI['SubtitleSize'] or 16, rgb(UI['SubtitleColor']), UI['Subtitle'])
+                UI.SubtitleSize or 16, rgb(UI.SubtitleColor), UI.Subtitle)
         end
         local tname, tdist = getTargetName(), getTargetDistance()
-        if UI['ShowSilentAim'] and Config['Silent Aim']['Enabled'] and isLocking and currentTarget and tname then
-            lines[#lines+1] = string.format('<font color="%s">%s</font>', rgb(UI['FeatureColor']), featureLine("Silent Aim", tname, tdist))
+        if UI.ShowSilentAim and Config.SilentAim.Enabled and isLocking and currentTarget and tname then
+            lines[#lines+1] = string.format('<font color="%s">%s</font>', rgb(UI.FeatureColor), featureLine("Silent Aim", tname, tdist))
         end
-        if UI['ShowAimAssist'] and Config['Camera Lock']['Enabled'] and aimAssistEnabled and aimAssistTarget and aimAssistTarget.Character then
+        if UI.ShowAimAssist and Config.CameraLock.Enabled and aimAssistEnabled and aimAssistTarget and aimAssistTarget.Character then
             local rp = aimAssistTarget.Character:FindFirstChild("HumanoidRootPart")
             if rp then
                 local d = math.floor((Camera.CFrame.Position - rp.Position).Magnitude)
                 local n = aimAssistTarget.DisplayName ~= "" and aimAssistTarget.DisplayName or aimAssistTarget.Name
-                lines[#lines+1] = string.format('<font color="%s">%s</font>', rgb(UI['FeatureColor']), featureLine("Aim Assist", n, d))
+                lines[#lines+1] = string.format('<font color="%s">%s</font>', rgb(UI.FeatureColor), featureLine("Aim Assist", n, d))
             end
         end
-        if UI['ShowTriggerBot'] and Config['Trigger Bot']['Enabled'] and triggerEnabled and tname then
-            lines[#lines+1] = string.format('<font color="%s">%s</font>', rgb(UI['FeatureColor']), featureLine("Trigger Bot", tname, tdist))
+        if UI.ShowTriggerBot and Config.TriggerBot.Enabled and triggerEnabled and tname then
+            lines[#lines+1] = string.format('<font color="%s">%s</font>', rgb(UI.FeatureColor), featureLine("Trigger Bot", tname, tdist))
         end
-        if UI['ShowWalkSpeed'] and Config['Speed']['Enabled'] and SpeedEnabled then
-            lines[#lines+1] = string.format('<font color="%s">Walk Speed</font>', rgb(UI['FeatureColor']))
+        if UI.ShowWalkSpeed and Config.Speed.Enabled and SpeedEnabled then
+            lines[#lines+1] = string.format('<font color="%s">Walk Speed</font>', rgb(UI.FeatureColor))
         end
-        if UI['ShowJumpPower'] and Config['Super Jump']['Enabled'] then
-            if UserInputService:IsKeyDown(Enum.KeyCode[Config['Keybinds']['Super Jump']]) then
-                lines[#lines+1] = string.format('<font color="%s">Jump Power</font>', rgb(UI['FeatureColor']))
+        if UI.ShowJumpPower and Config.SuperJump.Enabled then
+            if UserInputService:IsKeyDown(Enum.KeyCode[Config.Keybinds.SuperJump]) then
+                lines[#lines+1] = string.format('<font color="%s">Jump Power</font>', rgb(UI.FeatureColor))
             end
         end
         lbl.Text = table.concat(lines, "\n")
     end))
 end
 
+-- ══════════════════════════════════════════════════════════════
+-- INPUT HANDLING
+-- ══════════════════════════════════════════════════════════════
 table.insert(connections, UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
-    local kb = Config['Keybinds']
-    if input.KeyCode == Enum.KeyCode[kb['Target Lock']['Key']] then
-        if kb['Target Lock']['Mode'] == 'Toggle' then
-            if Config['Settings']['Target Aim'] then
-                if isLocking then isLocking=false; currentTarget=nil
+    local kb = Config.Keybinds
+    if input.KeyCode == Enum.KeyCode[kb.TargetLock.Key] then
+        if kb.TargetLock.Mode == 'Toggle' then
+            if Config.Settings.TargetAim then
+                if isLocking then
+                    isLocking = false; currentTarget = nil
                 else
                     local t = findClosestTarget()
-                    if t then currentTarget=t; isLocking=true end
+                    if t then currentTarget = t; isLocking = true end
                 end
-            else isLocking = not isLocking end
-        elseif kb['Target Lock']['Mode'] == 'Hold' then
-            if Config['Settings']['Target Aim'] then
+            else
+                isLocking = not isLocking
+            end
+        elseif kb.TargetLock.Mode == 'Hold' then
+            if Config.Settings.TargetAim then
                 local t = findClosestTarget()
-                if t then currentTarget=t; isLocking=true end
-            else isLocking = true end
+                if t then currentTarget = t; isLocking = true end
+            else
+                isLocking = true
+            end
         end
     end
-    if input.KeyCode == Enum.KeyCode[kb['Trigger Bot']['Key']] then
-        if kb['Trigger Bot']['Mode'] == 'Toggle' then triggerEnabled = not triggerEnabled
-        elseif kb['Trigger Bot']['Mode'] == 'Hold' then triggerEnabled = true end
+    if input.KeyCode == Enum.KeyCode[kb.TriggerBot.Key] then
+        if kb.TriggerBot.Mode == 'Toggle' then triggerEnabled = not triggerEnabled
+        elseif kb.TriggerBot.Mode == 'Hold' then triggerEnabled = true end
     end
-    if input.KeyCode == Enum.KeyCode[kb['Speed']] then
+    if input.KeyCode == Enum.KeyCode[kb.Speed] then
         local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
         if hum then
             if not SpeedEnabled then SpeedEnabled = true
-            else hum.WalkSpeed=16; SpeedEnabled=false end
+            else hum.WalkSpeed = 16; SpeedEnabled = false end
         end
     end
-    if input.KeyCode == Enum.KeyCode[kb['ESP']] then Config['ESP']['Enabled'] = not Config['ESP']['Enabled'] end
-    if input.KeyCode == Enum.KeyCode[kb['Camera Lock']] then
-        if Config['Camera Lock']['Enabled'] then
+    if input.KeyCode == Enum.KeyCode[kb.ESP] then Config.ESP.Enabled = not Config.ESP.Enabled end
+    if input.KeyCode == Enum.KeyCode[kb.CameraLock] then
+        if Config.CameraLock.Enabled then
             aimAssistEnabled = not aimAssistEnabled
             if not aimAssistEnabled then aimAssistTarget = nil end
         end
     end
-    if input.KeyCode == Enum.KeyCode[kb['Desync']] then toggleDesync() end
-    if input.KeyCode == Enum.KeyCode[kb['Spectate']] then toggleSpectate() end
-    if input.KeyCode == Enum.KeyCode[kb['Bullet TP']] then bulletTPActive = not bulletTPActive end
-    if input.KeyCode == Enum.KeyCode[Config['Infinite Range']['Key']] then infRangeActive = not infRangeActive end
+    if input.KeyCode == Enum.KeyCode[kb.Desync] then toggleDesync() end
+    if input.KeyCode == Enum.KeyCode[kb.Spectate] then toggleSpectate() end
+    if input.KeyCode == Enum.KeyCode[kb.BulletTP] then bulletTPActive = not bulletTPActive end
+    if input.KeyCode == Enum.KeyCode[Config.InfiniteRange.Key] then infRangeActive = not infRangeActive end
     if input.KeyCode == Enum.KeyCode.RightControl then
         if shared.__XANAX_UNLOAD then shared.__XANAX_UNLOAD() end
     end
@@ -1825,15 +1828,18 @@ end))
 
 table.insert(connections, UserInputService.InputEnded:Connect(function(input, gp)
     if gp then return end
-    local kb = Config['Keybinds']
-    if input.KeyCode == Enum.KeyCode[kb['Target Lock']['Key']] and kb['Target Lock']['Mode'] == 'Hold' then
-        isLocking=false; currentTarget=nil
+    local kb = Config.Keybinds
+    if input.KeyCode == Enum.KeyCode[kb.TargetLock.Key] and kb.TargetLock.Mode == 'Hold' then
+        isLocking = false; currentTarget = nil
     end
-    if input.KeyCode == Enum.KeyCode[kb['Trigger Bot']['Key']] and kb['Trigger Bot']['Mode'] == 'Hold' then
+    if input.KeyCode == Enum.KeyCode[kb.TriggerBot.Key] and kb.TriggerBot.Mode == 'Hold' then
         triggerEnabled = false
     end
 end))
 
+-- ══════════════════════════════════════════════════════════════
+-- UNLOAD
+-- ══════════════════════════════════════════════════════════════
 function shared.__XANAX_UNLOAD()
     for _, c in ipairs(connections) do pcall(function() c:Disconnect() end) end
     connections = {}
@@ -1841,45 +1847,35 @@ function shared.__XANAX_UNLOAD()
     pcall(stopSpectate)
     bulletTPActive = false
     if getgenv().XanaxSetAutoStomp then getgenv().XanaxSetAutoStomp(false) end
-    if desyncCircle then pcall(function() desyncCircle:Remove() end); desyncCircle=nil end
-    if desyncLine then pcall(function() desyncLine:Remove() end); desyncLine=nil end
-    if silentFovCircle then pcall(function() silentFovCircle:Remove() end); silentFovCircle=nil end
-    if camlockFovCircle then pcall(function() camlockFovCircle:Remove() end); camlockFovCircle=nil end
-    if snaplineDrawing then pcall(function() snaplineDrawing:Remove() end); snaplineDrawing=nil end
-    for _, esp in pairs(espLabels) do
-        pcall(function() esp.nameTag:Remove() end); pcall(function() esp.Distance:Remove() end)
-        pcall(function() esp.Weapon:Remove() end); pcall(function() esp.HealthText:Remove() end)
-        pcall(function() esp.Flag:Remove() end); pcall(function() esp.HeadDot:Remove() end)
-        pcall(function() esp.HeadDotOutline:Remove() end)
-        for i=1,4 do
-            if esp.BoxLines[i] then esp.BoxLines[i]:Destroy() end
-            if esp.BoxLineOutlines[i] then esp.BoxLineOutlines[i]:Destroy() end
+    if desyncCircle then pcall(function() desyncCircle:Remove() end); desyncCircle = nil end
+    if desyncLine then pcall(function() desyncLine:Remove() end); desyncLine = nil end
+    if silentFovCircle then pcall(function() silentFovCircle:Remove() end); silentFovCircle = nil end
+    if camlockFovCircle then pcall(function() camlockFovCircle:Remove() end); camlockFovCircle = nil end
+    if snaplineDrawing then pcall(function() snaplineDrawing:Remove() end); snaplineDrawing = nil end
+    for _, esp in pairs(espData) do
+        for _, d in pairs({esp.nameTag, esp.Distance, esp.Weapon, esp.Flag, esp.HeadDot, esp.HeadDotOutline}) do
+            pcall(function() d:Remove() end)
         end
-        for i=1,8 do
-            if esp.BoxCornerLines[i] then esp.BoxCornerLines[i]:Destroy() end
-            if esp.BoxCornerOutlines[i] then esp.BoxCornerOutlines[i]:Destroy() end
-        end
-        if esp.BoxFill then esp.BoxFill:Destroy() end
+        for _, l in pairs(esp.BoxLines) do pcall(function() l:Remove() end) end
+        for _, l in pairs(esp.BoxOutlines) do pcall(function() l:Remove() end) end
+        for _, l in pairs(esp.CornerLines) do pcall(function() l:Remove() end) end
+        for _, l in pairs(esp.CornerOutlines) do pcall(function() l:Remove() end) end
+        for _, l in pairs(esp.dynLines) do pcall(function() l:Remove() end) end
     end
-    espLabels = {}
+    espData = {}
     for _, cache in pairs(skeletonCache) do
         for _, l in pairs(cache.lines) do pcall(function() l:Remove() end) end
         for _, j in pairs(cache.joints) do pcall(function() j:Remove() end) end
     end
     skeletonCache = {}
-    for _, a in pairs(arrowDrawings) do if a.Remove then pcall(function() a:Remove() end) end end
+    for _, a in pairs(arrowDrawings) do pcall(function() a:Remove() end) end
     arrowDrawings = {}
     for _, cache in pairs(ChamsCache) do
         for _, h in pairs(cache) do pcall(function() h:Destroy() end) end
     end
     ChamsCache = {}
-    for _, set in pairs(HealthBarDrawings) do
-        for _, sq in pairs(set) do pcall(function() sq:Remove() end) end
-    end
-    HealthBarDrawings = {}
-    if ESPGui then pcall(function() ESPGui:Destroy() end) end
     for _, c in pairs(game.CoreGui:GetChildren()) do
-        if c.Name == "XanaxUI" or c.Name == "XanaxESP" then pcall(function() c:Destroy() end) end
+        if c.Name == "XanaxUI" then pcall(function() c:Destroy() end) end
     end
     shared.__XANAX_RUNNING = false
     shared.__XANAX_UNLOAD = nil
@@ -1890,16 +1886,3 @@ shared.__XANAX_RUNNING = true
 for _, p in pairs(Players:GetPlayers()) do
     if p ~= LocalPlayer and p.Character then pcall(addESPToPlayer, p) end
 end
-
-task.spawn(function()
-    task.wait(1)
-    local ch = LocalPlayer.Character
-    local hum = ch and ch:FindFirstChildOfClass("Humanoid")
-    if hum and hum.PlatformStand then
-        pcall(function()
-            hum.PlatformStand = false
-            hum.AutoRotate = true
-            hum:ChangeState(Enum.HumanoidStateType.GettingStarted)
-        end)
-    end
-end)
