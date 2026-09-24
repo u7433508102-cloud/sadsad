@@ -1,6 +1,9 @@
 -- ══════════════════════════════════════════════════════════════
 -- XANAX.WTF — MAIN SCRIPT
 -- Requires shared.Xanax (config) to be loaded first.
+-- Skin Changer, Auto Stomp, Auto Reload, Fake AFK, Device Spoofer
+-- are wrapped in --[[ ]] blocks (preserved, disabled).
+-- Anti Stomp is LIVE.
 -- ══════════════════════════════════════════════════════════════
 
 local ok, err = pcall(function()
@@ -362,7 +365,7 @@ local function applyAimAssist()
 end
 
 -- ══════════════════════════════════════════════════════════════
--- DRAWING-BASED ESP  (Normal + Dynamic, smoothed)
+-- DRAWING-BASED ESP (Normal + Dynamic, smoothed)
 -- ══════════════════════════════════════════════════════════════
 local ESP_BOX_LINES = 4
 local ESP_CORNER_LINES = 8
@@ -414,7 +417,6 @@ local function addESPToPlayer(player)
         BoxOutlines  = {},
         CornerLines  = {},
         CornerOutlines = {},
-        -- dynamic box state
         dynState = { x = 0, y = 0, w = 0, h = 0, init = false },
         dynLines = { top = newLine(), bottom = newLine(), left = newLine(), right = newLine() },
     }
@@ -509,7 +511,6 @@ local function hideESP(esp)
 end
 
 local function getCharacterBounds(char)
-    -- Returns minY (feet), maxY (top of head), and average center X/Z in world
     local minY, maxY = math.huge, -math.huge
     local centerX, centerZ, count = 0, 0, 0
     for _, part in ipairs(char:GetChildren()) do
@@ -558,7 +559,6 @@ local function refreshESP()
             goto continue
         end
 
-        -- Chams
         if Config.ESP.Chams.Enabled then
             if not ChamsCache[player] then ChamsCache[player] = {} end
             local col = Config.ESP.Chams.Color
@@ -607,7 +607,6 @@ local function refreshESP()
 
         if arrowDrawings[player] then arrowDrawings[player].Visible=false end
 
-        -- ── Box geometry ──
         local boxCfg = Config.ESP.Boxes
         local topY = math.min(topPos.Y, feetPos.Y)
         local botY = math.max(topPos.Y, feetPos.Y)
@@ -625,7 +624,6 @@ local function refreshESP()
 
         local boxType = boxCfg.BoxType or "Normal"
 
-        -- Hide the other mode
         if boxType == "Dynamic" then
             for i=1,ESP_BOX_LINES do esp.BoxLines[i].Visible=false; esp.BoxOutlines[i].Visible=false end
             for i=1,ESP_CORNER_LINES do esp.CornerLines[i].Visible=false; esp.CornerOutlines[i].Visible=false end
@@ -634,7 +632,6 @@ local function refreshESP()
         end
 
         if boxType == "Normal" then
-            -- 4-line rectangle, top/bottom/left/right, with optional outline
             local x1, y1 = bx, by
             local x2, y2 = bx + boxW, by + boxH
 
@@ -662,7 +659,6 @@ local function refreshESP()
             setLine(esp.BoxLines[4], x2, y1, x2, y2, boxColor, t, true)
 
         elseif boxType == "Dynamic" then
-            -- Smoothed dynamic bounding box that hugs the silhouette
             local targetX, targetY, targetW, targetH = bx, by, boxW, boxH
             local s = esp.dynState
             if not s.init then
@@ -686,7 +682,6 @@ local function refreshESP()
                 l.Visible = true
             end
 
-            -- Outline pass
             if hasOutline then
                 setDyn(esp.dynLines.top,    x1-oThickness, y1-oThickness, x2+oThickness, y1-oThickness, oColor, t+oThickness*2)
                 setDyn(esp.dynLines.bottom, x1-oThickness, y2+oThickness, x2+oThickness, y2+oThickness, oColor, t+oThickness*2)
@@ -694,7 +689,6 @@ local function refreshESP()
                 setDyn(esp.dynLines.right,  x2+oThickness, y1-oThickness, x2+oThickness, y2+oThickness, oColor, t+oThickness*2)
             end
 
-            -- Main box on top
             local dcol = boxColor
             esp.dynLines.top.From    = Vector2.new(x1, y1)
             esp.dynLines.top.To      = Vector2.new(x2, y1)
@@ -721,7 +715,6 @@ local function refreshESP()
             esp.dynLines.right.Visible = true
         end
 
-        -- Head dot
         if Config.ESP.HeadDot then
             esp.HeadDot.Position = Vector2.new(headPos.X, headPos.Y)
             esp.HeadDot.Radius = math.max(2, boxH*0.05)
@@ -735,7 +728,6 @@ local function refreshESP()
             esp.HeadDotOutline.Visible = false
         end
 
-        -- Names
         if Config.ESP.Names.Enabled then
             esp.nameTag.Position = Vector2.new(cxScreen, by - 15)
             esp.nameTag.Text = player.DisplayName ~= "" and player.DisplayName or player.Name
@@ -747,7 +739,6 @@ local function refreshESP()
             esp.nameTag.Visible = false
         end
 
-        -- Weapon
         if Config.ESP.Weapon.Enabled then
             local tool = char:FindFirstChildOfClass("Tool")
             if tool then
@@ -762,7 +753,6 @@ local function refreshESP()
             esp.Weapon.Visible = false
         end
 
-        -- Distance
         if Config.ESP.Distance.Enabled then
             local dist = math.floor((Camera.CFrame.Position - rootPart.Position).Magnitude)
             esp.Distance.Text = dist.."m"
@@ -773,7 +763,6 @@ local function refreshESP()
             esp.Distance.Visible = false
         end
 
-        -- Flags
         if Config.ESP.Flags.Enabled then
             local flags = {}
             local be = char:FindFirstChild("BodyEffects")
@@ -1262,8 +1251,8 @@ do
     end
 end
 
--- ══════════════════════════════════════════════════════════════
--- SKIN CHANGER
+--[[ ══════════════════════════════════════════════════════════════
+-- SKIN CHANGER — DISABLED (uncomment block to enable)
 -- ══════════════════════════════════════════════════════════════
 do
     local SkinCfg = Config.SkinChanger
@@ -1384,9 +1373,11 @@ do
         end
     end
 end
+--]]
 
--- ══════════════════════════════════════════════════════════════
--- HOOD FEATURES (Auto Stomp / Auto Reload / Anti Stomp / Fake AFK)
+--[[ ══════════════════════════════════════════════════════════════
+-- HOOD CUSTOM FEATURES — Auto Stomp / Auto Reload / Fake AFK
+-- (Anti Stomp is LIVE below, outside this block)
 -- ══════════════════════════════════════════════════════════════
 do
     local HoodCfg = Config.HoodFeatures
@@ -1491,18 +1482,6 @@ do
                 end
             end))
         end
-        if HoodCfg.AntiStomp and HoodCfg.AntiStomp.Enabled then
-            local antiKey = HoodCfg.AntiStomp.Key or 'P'
-            table.insert(connections, UserInputService.InputBegan:Connect(function(input, gp)
-                if gp then return end
-                if input.KeyCode == Enum.KeyCode[antiKey] then
-                    local char = LocalPlayer.Character; if not char then return end
-                    for _, part in pairs(char:GetDescendants()) do
-                        if part:IsA("BasePart") then pcall(function() part:Destroy() end) end
-                    end
-                end
-            end))
-        end
         if HoodCfg.FakeAFK and HoodCfg.FakeAFK.Enabled and MainEvent then
             local interval = HoodCfg.FakeAFK.Interval or 0.5
             task.spawn(function()
@@ -1514,9 +1493,29 @@ do
         end
     end
 end
+--]]
 
 -- ══════════════════════════════════════════════════════════════
--- DEVICE SPOOFER
+-- ANTI STOMP — LIVE
+-- ══════════════════════════════════════════════════════════════
+do
+    local HoodCfg = Config.HoodFeatures
+    if HoodCfg and HoodCfg.AntiStomp and HoodCfg.AntiStomp.Enabled then
+        local antiKey = HoodCfg.AntiStomp.Key or 'P'
+        table.insert(connections, UserInputService.InputBegan:Connect(function(input, gp)
+            if gp then return end
+            if input.KeyCode == Enum.KeyCode[antiKey] then
+                local char = LocalPlayer.Character; if not char then return end
+                for _, part in pairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then pcall(function() part:Destroy() end) end
+                end
+            end
+        end))
+    end
+end
+
+--[[ ══════════════════════════════════════════════════════════════
+-- DEVICE SPOOFER — DISABLED (uncomment block to enable)
 -- ══════════════════════════════════════════════════════════════
 do
     local DevCfg = Config.DeviceSpoofer
@@ -1536,6 +1535,7 @@ do
         end
     end
 end
+--]]
 
 -- ══════════════════════════════════════════════════════════════
 -- AUTO REJOIN (on kick only)
@@ -1562,22 +1562,18 @@ do
                 end)
             end
         end
-        table.insert(connections, LocalPlayer.OnTeleport:Connect(function(state)
-            if state == Enum.TeleportState.Started then return end
-        end))
-        -- detect kick via PlayerRemoving of LocalPlayer? Not reliable. Use Kick hook.
-        local mt = getrawmetatable(game)
-        local oldNamecall = mt.__namecall
-        setreadonly(mt, false)
-        mt.__namecall = newcclosure(function(self, ...)
-            local method = getnamecallmethod()
-            if method == "Kick" and self == LocalPlayer and not checkcaller() then
-                task.spawn(doRejoin)
-            end
-            return oldNamecall(self, ...)
-        end)
-        setreadonly(mt, true)
-        -- Manual keybind
+
+        if hookmetamethod and getnamecallmethod then
+            local oldNamecall
+            oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+                local method = getnamecallmethod()
+                if method == "Kick" and self == LocalPlayer and not checkcaller() then
+                    task.spawn(doRejoin)
+                end
+                return oldNamecall(self, ...)
+            end)
+        end
+
         table.insert(connections, UserInputService.InputBegan:Connect(function(input, gp)
             if gp then return end
             if input.KeyCode == Enum.KeyCode[AR.Key] then
@@ -1588,7 +1584,7 @@ do
 end
 
 -- ══════════════════════════════════════════════════════════════
--- INVENTORY SORTER (hotbar + backpack, keybind)
+-- INVENTORY SORTER (hotbar + backpack)
 -- ══════════════════════════════════════════════════════════════
 do
     local IS = Config.InventorySorter
@@ -1639,23 +1635,17 @@ do
             table.sort(rest, function(a, b) return a.Name < b.Name end)
             local backpack = getBackpack()
             if not backpack then return end
-            -- Move everything to backpack first
             for _, t in ipairs(tools) do
                 if t.Parent ~= backpack then
                     pcall(function() t.Parent = backpack end)
                 end
             end
-            -- Wait a frame so replication settles
             RunService.Heartbeat:Wait()
-            -- Move prioritized to hotbar (max 9 slots? Hood hotbar has limited slots)
             local maxHotbar = 9
-            local hotbarTools = getHotbarTools()
             local char = LocalPlayer.Character
             if not char then return end
-            -- Humanoid needed to equip
             local hum = char:FindFirstChildOfClass("Humanoid")
             if not hum then return end
-            -- We move prioritized into the character (which is the hotbar)
             for i, entry in ipairs(prioritized) do
                 if i > maxHotbar then break end
                 pcall(function() hum:EquipTool(entry.tool) end)
