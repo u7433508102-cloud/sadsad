@@ -537,249 +537,250 @@ local function refreshESP()
         local player = esp.player
         local char = player and player.Character
 
+        local skip = false
         if not player or not player.Parent or not char
             or not char:FindFirstChild("HumanoidRootPart") or not char:FindFirstChild("Head") then
+            skip = true
+        end
+
+        local hum
+        if not skip then
+            hum = char:FindFirstChildOfClass("Humanoid")
+            if not hum or hum.Health <= 0 then
+                skip = true
+            end
+        end
+
+        if skip then
             hideESP(esp)
             if skeletonCache[player] then
                 for _,l in pairs(skeletonCache[player].lines) do l.Visible=false end
                 for _,j in pairs(skeletonCache[player].joints) do j.Visible=false end
             end
             if arrowDrawings[player] then arrowDrawings[player].Visible=false end
-            goto continue
-        end
-
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hum or hum.Health <= 0 then
-            hideESP(esp)
-            if skeletonCache[player] then
-                for _,l in pairs(skeletonCache[player].lines) do l.Visible=false end
-                for _,j in pairs(skeletonCache[player].joints) do j.Visible=false end
-            end
-            if arrowDrawings[player] then arrowDrawings[player].Visible=false end
-            goto continue
-        end
-
-        if Config.ESP.Chams.Enabled then
-            if not ChamsCache[player] then ChamsCache[player] = {} end
-            local col = Config.ESP.Chams.Color
-            local trans = Config.ESP.Chams.Transparency
-            for _, part in ipairs(char:GetChildren()) do
-                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                    local h = ChamsCache[player][part]
-                    if not h then
-                        h = Instance.new("Highlight")
-                        h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                        h.FillTransparency = 1
-                        h.OutlineTransparency = trans
-                        h.Adornee = part
-                        h.Parent = part
-                        ChamsCache[player][part] = h
+        else
+            if Config.ESP.Chams.Enabled then
+                if not ChamsCache[player] then ChamsCache[player] = {} end
+                local col = Config.ESP.Chams.Color
+                local trans = Config.ESP.Chams.Transparency
+                for _, part in ipairs(char:GetChildren()) do
+                    if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                        local h = ChamsCache[player][part]
+                        if not h then
+                            h = Instance.new("Highlight")
+                            h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                            h.FillTransparency = 1
+                            h.OutlineTransparency = trans
+                            h.Adornee = part
+                            h.Parent = part
+                            ChamsCache[player][part] = h
+                        end
+                        h.OutlineColor = col; h.FillColor = col; h.OutlineTransparency = trans
                     end
-                    h.OutlineColor = col; h.FillColor = col; h.OutlineTransparency = trans
+                end
+            elseif ChamsCache[player] then
+                for _,h in pairs(ChamsCache[player]) do pcall(function() h:Destroy() end) end
+                ChamsCache[player] = nil
+            end
+
+            local rootPart = char.HumanoidRootPart
+            local head = char.Head
+
+            local headPos, headOn = Camera:WorldToViewportPoint(head.Position)
+            local minY, maxY, cx, cz = getCharacterBounds(char)
+
+            if not minY then
+                hideESP(esp)
+            else
+                local feetWorld = Vector3.new(cx, minY, cz)
+                local topWorld  = Vector3.new(cx, maxY + 0.15, cz)
+                local feetPos, feetOn = Camera:WorldToViewportPoint(feetWorld)
+                local topPos, topOn   = Camera:WorldToViewportPoint(topWorld)
+
+                if not feetOn or not topOn or not headOn or feetPos.Z <= 0 or topPos.Z <= 0 then
+                    hideESP(esp)
+                    if skeletonCache[player] then
+                        for _,l in pairs(skeletonCache[player].lines) do l.Visible=false end
+                        for _,j in pairs(skeletonCache[player].joints) do j.Visible=false end
+                    end
+                    if arrowDrawings[player] then arrowDrawings[player].Visible=false end
+                else
+                    if arrowDrawings[player] then arrowDrawings[player].Visible=false end
+
+                    local boxCfg = Config.ESP.Boxes
+                    local topY = math.min(topPos.Y, feetPos.Y)
+                    local botY = math.max(topPos.Y, feetPos.Y)
+                    local boxH = botY - topY
+                    local boxW = boxH / 2
+                    local cxScreen = (feetPos.X + topPos.X) / 2
+                    local bx = cxScreen - boxW / 2
+                    local by = topY
+
+                    local boxColor = boxCfg.Color
+                    local t = boxCfg.Thickness
+                    local hasOutline = boxCfg.Outlines and boxCfg.Outlines.Style ~= "None"
+                    local oColor = boxCfg.Outlines and boxCfg.Outlines.Color or Color3.fromRGB(0,0,0)
+                    local oThickness = boxCfg.Outlines and boxCfg.Outlines.Thickness or 1
+
+                    local boxType = boxCfg.BoxType or "Normal"
+
+                    if boxType == "Dynamic" then
+                        for i=1,ESP_BOX_LINES do esp.BoxLines[i].Visible=false; esp.BoxOutlines[i].Visible=false end
+                        for i=1,ESP_CORNER_LINES do esp.CornerLines[i].Visible=false; esp.CornerOutlines[i].Visible=false end
+                    else
+                        for _,l in pairs(esp.dynLines) do l.Visible=false end
+                    end
+
+                    if boxType == "Normal" then
+                        local x1, y1 = bx, by
+                        local x2, y2 = bx + boxW, by + boxH
+
+                        local function setLine(l, x1_, y1_, x2_, y2_, col, thick, vis)
+                            l.From = Vector2.new(x1_, y1_)
+                            l.To   = Vector2.new(x2_, y2_)
+                            l.Color = col
+                            l.Thickness = thick
+                            l.Transparency = 1
+                            l.Visible = vis
+                        end
+
+                        if hasOutline then
+                            setLine(esp.BoxOutlines[1], x1-oThickness, y1-oThickness, x2+oThickness, y1-oThickness, oColor, t+oThickness*2, true)
+                            setLine(esp.BoxOutlines[2], x1-oThickness, y2+oThickness, x2+oThickness, y2+oThickness, oColor, t+oThickness*2, true)
+                            setLine(esp.BoxOutlines[3], x1-oThickness, y1-oThickness, x1-oThickness, y2+oThickness, oColor, t+oThickness*2, true)
+                            setLine(esp.BoxOutlines[4], x2+oThickness, y1-oThickness, x2+oThickness, y2+oThickness, oColor, t+oThickness*2, true)
+                        else
+                            for i=1,4 do esp.BoxOutlines[i].Visible=false end
+                        end
+
+                        setLine(esp.BoxLines[1], x1, y1, x2, y1, boxColor, t, true)
+                        setLine(esp.BoxLines[2], x1, y2, x2, y2, boxColor, t, true)
+                        setLine(esp.BoxLines[3], x1, y1, x1, y2, boxColor, t, true)
+                        setLine(esp.BoxLines[4], x2, y1, x2, y2, boxColor, t, true)
+
+                    elseif boxType == "Dynamic" then
+                        local targetX, targetY, targetW, targetH = bx, by, boxW, boxH
+                        local s = esp.dynState
+                        if not s.init then
+                            s.x = targetX; s.y = targetY; s.w = targetW; s.h = targetH; s.init = true
+                        else
+                            local lerp = boxCfg.Smoothing or 0.15
+                            s.x = s.x + (targetX - s.x) * lerp
+                            s.y = s.y + (targetY - s.y) * lerp
+                            s.w = s.w + (targetW - s.w) * lerp
+                            s.h = s.h + (targetH - s.h) * lerp
+                        end
+                        local x1, y1 = s.x, s.y
+                        local x2, y2 = s.x + s.w, s.y + s.h
+
+                        local function setDyn(l, x1_, y1_, x2_, y2_, col, thick)
+                            l.From = Vector2.new(x1_, y1_)
+                            l.To   = Vector2.new(x2_, y2_)
+                            l.Color = col
+                            l.Thickness = thick
+                            l.Transparency = 1
+                            l.Visible = true
+                        end
+
+                        if hasOutline then
+                            setDyn(esp.dynLines.top,    x1-oThickness, y1-oThickness, x2+oThickness, y1-oThickness, oColor, t+oThickness*2)
+                            setDyn(esp.dynLines.bottom, x1-oThickness, y2+oThickness, x2+oThickness, y2+oThickness, oColor, t+oThickness*2)
+                            setDyn(esp.dynLines.left,   x1-oThickness, y1-oThickness, x1-oThickness, y2+oThickness, oColor, t+oThickness*2)
+                            setDyn(esp.dynLines.right,  x2+oThickness, y1-oThickness, x2+oThickness, y2+oThickness, oColor, t+oThickness*2)
+                        end
+
+                        local dcol = boxColor
+                        esp.dynLines.top.From    = Vector2.new(x1, y1)
+                        esp.dynLines.top.To      = Vector2.new(x2, y1)
+                        esp.dynLines.top.Color   = dcol
+                        esp.dynLines.top.Thickness = t
+                        esp.dynLines.top.Visible = true
+
+                        esp.dynLines.bottom.From = Vector2.new(x1, y2)
+                        esp.dynLines.bottom.To   = Vector2.new(x2, y2)
+                        esp.dynLines.bottom.Color = dcol
+                        esp.dynLines.bottom.Thickness = t
+                        esp.dynLines.bottom.Visible = true
+
+                        esp.dynLines.left.From   = Vector2.new(x1, y1)
+                        esp.dynLines.left.To     = Vector2.new(x1, y2)
+                        esp.dynLines.left.Color  = dcol
+                        esp.dynLines.left.Thickness = t
+                        esp.dynLines.left.Visible = true
+
+                        esp.dynLines.right.From  = Vector2.new(x2, y1)
+                        esp.dynLines.right.To    = Vector2.new(x2, y2)
+                        esp.dynLines.right.Color = dcol
+                        esp.dynLines.right.Thickness = t
+                        esp.dynLines.right.Visible = true
+                    end
+
+                    if Config.ESP.HeadDot then
+                        esp.HeadDot.Position = Vector2.new(headPos.X, headPos.Y)
+                        esp.HeadDot.Radius = math.max(2, boxH*0.05)
+                        esp.HeadDot.Color = boxColor
+                        esp.HeadDot.Visible = true
+                        esp.HeadDotOutline.Position = Vector2.new(headPos.X, headPos.Y)
+                        esp.HeadDotOutline.Radius = esp.HeadDot.Radius + 2
+                        esp.HeadDotOutline.Visible = true
+                    else
+                        esp.HeadDot.Visible = false
+                        esp.HeadDotOutline.Visible = false
+                    end
+
+                    if Config.ESP.Names.Enabled then
+                        esp.nameTag.Position = Vector2.new(cxScreen, by - 15)
+                        esp.nameTag.Text = player.DisplayName ~= "" and player.DisplayName or player.Name
+                        esp.nameTag.Color = (currentTarget and currentTarget.Parent == char)
+                            and Config.ESP.Names.TargetColor or Config.ESP.Names.Color
+                        esp.nameTag.Size = Config.ESP.Names.TextSize or 13
+                        esp.nameTag.Visible = true
+                    else
+                        esp.nameTag.Visible = false
+                    end
+
+                    if Config.ESP.Weapon.Enabled then
+                        local tool = char:FindFirstChildOfClass("Tool")
+                        if tool then
+                            esp.Weapon.Text = "["..tool.Name.."]"
+                            esp.Weapon.Position = Vector2.new(cxScreen, by + boxH + 6)
+                            esp.Weapon.Color = Config.ESP.Weapon.Color
+                            esp.Weapon.Visible = true
+                        else
+                            esp.Weapon.Visible = false
+                        end
+                    else
+                        esp.Weapon.Visible = false
+                    end
+
+                    if Config.ESP.Distance.Enabled then
+                        local dist = math.floor((Camera.CFrame.Position - rootPart.Position).Magnitude)
+                        esp.Distance.Text = dist.."m"
+                        esp.Distance.Position = Vector2.new(cxScreen, by + boxH + 20)
+                        esp.Distance.Color = Config.ESP.Distance.Color
+                        esp.Distance.Visible = true
+                    else
+                        esp.Distance.Visible = false
+                    end
+
+                    if Config.ESP.Flags.Enabled then
+                        local flags = {}
+                        local be = char:FindFirstChild("BodyEffects")
+                        if be then local ko = be:FindFirstChild("K.O"); if ko and ko.Value then table.insert(flags,"KO") end end
+                        if hum.FloorMaterial == Enum.Material.Air then table.insert(flags,"AIR") end
+                        if #flags > 0 then
+                            esp.Flag.Text = table.concat(flags, " ")
+                            esp.Flag.Position = Vector2.new(bx + boxW + 5, by)
+                            esp.Flag.Visible = true
+                        else
+                            esp.Flag.Visible = false
+                        end
+                    else
+                        esp.Flag.Visible = false
+                    end
                 end
             end
-        elseif ChamsCache[player] then
-            for _,h in pairs(ChamsCache[player]) do pcall(function() h:Destroy() end) end
-            ChamsCache[player] = nil
         end
-
-        local rootPart = char.HumanoidRootPart
-        local head = char.Head
-
-        local headPos, headOn = Camera:WorldToViewportPoint(head.Position)
-        local minY, maxY, cx, cz = getCharacterBounds(char)
-        if not minY then goto continue end
-
-        local feetWorld = Vector3.new(cx, minY, cz)
-        local topWorld  = Vector3.new(cx, maxY + 0.15, cz)
-        local feetPos, feetOn = Camera:WorldToViewportPoint(feetWorld)
-        local topPos, topOn   = Camera:WorldToViewportPoint(topWorld)
-
-        if not feetOn or not topOn or not headOn or feetPos.Z <= 0 or topPos.Z <= 0 then
-            hideESP(esp)
-            if skeletonCache[player] then
-                for _,l in pairs(skeletonCache[player].lines) do l.Visible=false end
-                for _,j in pairs(skeletonCache[player].joints) do j.Visible=false end
-            end
-            if arrowDrawings[player] then arrowDrawings[player].Visible=false end
-            goto continue
-        end
-
-        if arrowDrawings[player] then arrowDrawings[player].Visible=false end
-
-        local boxCfg = Config.ESP.Boxes
-        local topY = math.min(topPos.Y, feetPos.Y)
-        local botY = math.max(topPos.Y, feetPos.Y)
-        local boxH = botY - topY
-        local boxW = boxH / 2
-        local cxScreen = (feetPos.X + topPos.X) / 2
-        local bx = cxScreen - boxW / 2
-        local by = topY
-
-        local boxColor = boxCfg.Color
-        local t = boxCfg.Thickness
-        local hasOutline = boxCfg.Outlines and boxCfg.Outlines.Style ~= "None"
-        local oColor = boxCfg.Outlines and boxCfg.Outlines.Color or Color3.fromRGB(0,0,0)
-        local oThickness = boxCfg.Outlines and boxCfg.Outlines.Thickness or 1
-
-        local boxType = boxCfg.BoxType or "Normal"
-
-        if boxType == "Dynamic" then
-            for i=1,ESP_BOX_LINES do esp.BoxLines[i].Visible=false; esp.BoxOutlines[i].Visible=false end
-            for i=1,ESP_CORNER_LINES do esp.CornerLines[i].Visible=false; esp.CornerOutlines[i].Visible=false end
-        else
-            for _,l in pairs(esp.dynLines) do l.Visible=false end
-        end
-
-        if boxType == "Normal" then
-            local x1, y1 = bx, by
-            local x2, y2 = bx + boxW, by + boxH
-
-            local function setLine(l, x1_, y1_, x2_, y2_, col, thick, vis)
-                l.From = Vector2.new(x1_, y1_)
-                l.To   = Vector2.new(x2_, y2_)
-                l.Color = col
-                l.Thickness = thick
-                l.Transparency = 1
-                l.Visible = vis
-            end
-
-            if hasOutline then
-                setLine(esp.BoxOutlines[1], x1-oThickness, y1-oThickness, x2+oThickness, y1-oThickness, oColor, t+oThickness*2, true)
-                setLine(esp.BoxOutlines[2], x1-oThickness, y2+oThickness, x2+oThickness, y2+oThickness, oColor, t+oThickness*2, true)
-                setLine(esp.BoxOutlines[3], x1-oThickness, y1-oThickness, x1-oThickness, y2+oThickness, oColor, t+oThickness*2, true)
-                setLine(esp.BoxOutlines[4], x2+oThickness, y1-oThickness, x2+oThickness, y2+oThickness, oColor, t+oThickness*2, true)
-            else
-                for i=1,4 do esp.BoxOutlines[i].Visible=false end
-            end
-
-            setLine(esp.BoxLines[1], x1, y1, x2, y1, boxColor, t, true)
-            setLine(esp.BoxLines[2], x1, y2, x2, y2, boxColor, t, true)
-            setLine(esp.BoxLines[3], x1, y1, x1, y2, boxColor, t, true)
-            setLine(esp.BoxLines[4], x2, y1, x2, y2, boxColor, t, true)
-
-        elseif boxType == "Dynamic" then
-            local targetX, targetY, targetW, targetH = bx, by, boxW, boxH
-            local s = esp.dynState
-            if not s.init then
-                s.x = targetX; s.y = targetY; s.w = targetW; s.h = targetH; s.init = true
-            else
-                local lerp = boxCfg.Smoothing or 0.15
-                s.x = s.x + (targetX - s.x) * lerp
-                s.y = s.y + (targetY - s.y) * lerp
-                s.w = s.w + (targetW - s.w) * lerp
-                s.h = s.h + (targetH - s.h) * lerp
-            end
-            local x1, y1 = s.x, s.y
-            local x2, y2 = s.x + s.w, s.y + s.h
-
-            local function setDyn(l, x1_, y1_, x2_, y2_, col, thick)
-                l.From = Vector2.new(x1_, y1_)
-                l.To   = Vector2.new(x2_, y2_)
-                l.Color = col
-                l.Thickness = thick
-                l.Transparency = 1
-                l.Visible = true
-            end
-
-            if hasOutline then
-                setDyn(esp.dynLines.top,    x1-oThickness, y1-oThickness, x2+oThickness, y1-oThickness, oColor, t+oThickness*2)
-                setDyn(esp.dynLines.bottom, x1-oThickness, y2+oThickness, x2+oThickness, y2+oThickness, oColor, t+oThickness*2)
-                setDyn(esp.dynLines.left,   x1-oThickness, y1-oThickness, x1-oThickness, y2+oThickness, oColor, t+oThickness*2)
-                setDyn(esp.dynLines.right,  x2+oThickness, y1-oThickness, x2+oThickness, y2+oThickness, oColor, t+oThickness*2)
-            end
-
-            local dcol = boxColor
-            esp.dynLines.top.From    = Vector2.new(x1, y1)
-            esp.dynLines.top.To      = Vector2.new(x2, y1)
-            esp.dynLines.top.Color   = dcol
-            esp.dynLines.top.Thickness = t
-            esp.dynLines.top.Visible = true
-
-            esp.dynLines.bottom.From = Vector2.new(x1, y2)
-            esp.dynLines.bottom.To   = Vector2.new(x2, y2)
-            esp.dynLines.bottom.Color = dcol
-            esp.dynLines.bottom.Thickness = t
-            esp.dynLines.bottom.Visible = true
-
-            esp.dynLines.left.From   = Vector2.new(x1, y1)
-            esp.dynLines.left.To     = Vector2.new(x1, y2)
-            esp.dynLines.left.Color  = dcol
-            esp.dynLines.left.Thickness = t
-            esp.dynLines.left.Visible = true
-
-            esp.dynLines.right.From  = Vector2.new(x2, y1)
-            esp.dynLines.right.To    = Vector2.new(x2, y2)
-            esp.dynLines.right.Color = dcol
-            esp.dynLines.right.Thickness = t
-            esp.dynLines.right.Visible = true
-        end
-
-        if Config.ESP.HeadDot then
-            esp.HeadDot.Position = Vector2.new(headPos.X, headPos.Y)
-            esp.HeadDot.Radius = math.max(2, boxH*0.05)
-            esp.HeadDot.Color = boxColor
-            esp.HeadDot.Visible = true
-            esp.HeadDotOutline.Position = Vector2.new(headPos.X, headPos.Y)
-            esp.HeadDotOutline.Radius = esp.HeadDot.Radius + 2
-            esp.HeadDotOutline.Visible = true
-        else
-            esp.HeadDot.Visible = false
-            esp.HeadDotOutline.Visible = false
-        end
-
-        if Config.ESP.Names.Enabled then
-            esp.nameTag.Position = Vector2.new(cxScreen, by - 15)
-            esp.nameTag.Text = player.DisplayName ~= "" and player.DisplayName or player.Name
-            esp.nameTag.Color = (currentTarget and currentTarget.Parent == char)
-                and Config.ESP.Names.TargetColor or Config.ESP.Names.Color
-            esp.nameTag.Size = Config.ESP.Names.TextSize or 13
-            esp.nameTag.Visible = true
-        else
-            esp.nameTag.Visible = false
-        end
-
-        if Config.ESP.Weapon.Enabled then
-            local tool = char:FindFirstChildOfClass("Tool")
-            if tool then
-                esp.Weapon.Text = "["..tool.Name.."]"
-                esp.Weapon.Position = Vector2.new(cxScreen, by + boxH + 6)
-                esp.Weapon.Color = Config.ESP.Weapon.Color
-                esp.Weapon.Visible = true
-            else
-                esp.Weapon.Visible = false
-            end
-        else
-            esp.Weapon.Visible = false
-        end
-
-        if Config.ESP.Distance.Enabled then
-            local dist = math.floor((Camera.CFrame.Position - rootPart.Position).Magnitude)
-            esp.Distance.Text = dist.."m"
-            esp.Distance.Position = Vector2.new(cxScreen, by + boxH + 20)
-            esp.Distance.Color = Config.ESP.Distance.Color
-            esp.Distance.Visible = true
-        else
-            esp.Distance.Visible = false
-        end
-
-        if Config.ESP.Flags.Enabled then
-            local flags = {}
-            local be = char:FindFirstChild("BodyEffects")
-            if be then local ko = be:FindFirstChild("K.O"); if ko and ko.Value then table.insert(flags,"KO") end end
-            if hum.FloorMaterial == Enum.Material.Air then table.insert(flags,"AIR") end
-            if #flags > 0 then
-                esp.Flag.Text = table.concat(flags, " ")
-                esp.Flag.Position = Vector2.new(bx + boxW + 5, by)
-                esp.Flag.Visible = true
-            else
-                esp.Flag.Visible = false
-            end
-        else
-            esp.Flag.Visible = false
-        end
-
-        ::continue::
     end
 end
 
@@ -1416,35 +1417,38 @@ do
                     local c = LocalPlayer.Character
                     local hrp = c and c:FindFirstChild("HumanoidRootPart")
                     local hum = c and c:FindFirstChildWhichIsA("Humanoid")
-                    if not c or not hrp or not hum then task.wait(); continue end
-                    if not stompState.target then stompState.target = findKnockedPlayer() end
-                    local t = stompState.target
-                    local tc = t and t.Character
-                    local be = tc and tc:FindFirstChild("BodyEffects")
-                    local ko = be and be:FindFirstChild("K.O")
-                    local dead = be and be:FindFirstChild("Dead")
-                    if not t or not ko or not ko.Value or (dead and dead.Value) then
-                        if stompState.returnCFrame then hrp.CFrame = stompState.returnCFrame end
-                        stompState.returnCFrame = nil
-                        stompState.target = nil
+                    if not c or not hrp or not hum then
                         task.wait()
-                        continue
-                    end
-                    local ut = tc:FindFirstChild("UpperTorso")
-                    if ut and MainEvent then
-                        if not stompState.returnCFrame then stompState.returnCFrame = hrp.CFrame end
-                        hum.Sit = false
-                        hum.PlatformStand = false
-                        pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
-                        pcall(function() hrp.Velocity = Vector3.zero end)
-                        hrp.CFrame = CFrame.new(ut.Position + Vector3.new(0, yOff, 0))
-                        RunService.RenderStepped:Wait()
-                        for _ = 1, stomps do
-                            pcall(function() MainEvent:FireServer("Stomp") end)
+                    else
+                        if not stompState.target then stompState.target = findKnockedPlayer() end
+                        local t = stompState.target
+                        local tc = t and t.Character
+                        local be = tc and tc:FindFirstChild("BodyEffects")
+                        local ko = be and be:FindFirstChild("K.O")
+                        local dead = be and be:FindFirstChild("Dead")
+                        if not t or not ko or not ko.Value or (dead and dead.Value) then
+                            if stompState.returnCFrame then hrp.CFrame = stompState.returnCFrame end
+                            stompState.returnCFrame = nil
+                            stompState.target = nil
+                            task.wait()
+                        else
+                            local ut = tc:FindFirstChild("UpperTorso")
+                            if ut and MainEvent then
+                                if not stompState.returnCFrame then stompState.returnCFrame = hrp.CFrame end
+                                hum.Sit = false
+                                hum.PlatformStand = false
+                                pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+                                pcall(function() hrp.Velocity = Vector3.zero end)
+                                hrp.CFrame = CFrame.new(ut.Position + Vector3.new(0, yOff, 0))
+                                RunService.RenderStepped:Wait()
+                                for _ = 1, stomps do
+                                    pcall(function() MainEvent:FireServer("Stomp") end)
+                                end
+                                hrp.CFrame = stompState.returnCFrame
+                            end
+                            task.wait()
                         end
-                        hrp.CFrame = stompState.returnCFrame
                     end
-                    task.wait()
                 end
                 stompState.target = nil
                 stompState.returnCFrame = nil
@@ -1876,3 +1880,5 @@ shared.__XANAX_RUNNING = true
 for _, p in pairs(Players:GetPlayers()) do
     if p ~= LocalPlayer and p.Character then pcall(addESPToPlayer, p) end
 end
+
+warn("[xanax.wtf] script loaded successfully")
